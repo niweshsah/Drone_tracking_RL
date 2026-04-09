@@ -1,0 +1,15 @@
+*.pt
+*.png
+*.npz
+
+__pycache__/
+
+*.pdf
+
+*.log
+
+pixi*
+
+*.mp4
+.pixi
+.vscode
