@@ -13,43 +13,42 @@ class TrainConfig:
     seed: int = 42
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Paper-inspired TD3 defaults (Table 2)
+    # Paper-specified architecture (Table 2) [cite: 626]
     state_dim: int = 2
     action_dim: int = 2
-    max_action: float = 6.0
+    max_action: float = 6.0 
     hidden_dim: int = 64
     actor_lr: float = 1e-3
     critic_lr: float = 1e-3
     gamma: float = 0.99
-    tau: float = 0.005
-    batch_size: int = 64
+    tau: float = 0.005 # Note: Paper mentions soft update but uses standard TD3 tau
+    batch_size: int = 64 
     buffer_size: int = 1_000_000
     policy_delay: int = 2
     policy_noise: float = 0.2
     noise_clip: float = 0.5
 
-    # Exploration schedule from paper philosophy
-    random_steps: int = 1000 # Initial pure exploration steps with random actions
-    td3_noise_steps: int = 500 # Steps to apply TD3 noise to actions for exploration
-    update_interval: int = 50 # How often to update the networks (in environment steps)
-    explore_noise: float = 0.15 # Stddev of Gaussian noise added to actions for exploration during TD3 noise phase
-    explore_noise_decay: float = 0.998 # Decay factor for exploration noise per episode
+    # Exploration schedule (Aligned with Figure 10 & Algorithm 1) 
+    random_episodes: int = 1000   # Phase 1: Episodes 0-1000 [cite: 665]
+    noise_episodes: int = 500    # Phase 2: Episodes 1000-1500 [cite: 665]
+    # Total episodes is 2000; Phase 3 (Pure Policy) is 1500-2000 [cite: 665]
+    
+    update_interval: int = 50     # Update every 50 environment steps [cite: 626]
+    explore_noise: float = 0.15   # Initial Gaussian noise magnitude [cite: 626]
+    explore_noise_decay: float = 0.998 # Decay rate per episode [cite: 626]
 
-    # Training loop controls
-    total_episodes: int = 300
-    max_episode_steps: int = 300
-    control_period: float = 0.3
+    total_episodes: int = 2000
+    max_episode_steps: int = 2000 # Paper uses MAX_STEPS 2000 total, but 300/ep is standard for tracking
+    control_period: float = 0.3  # 0.3s per step [cite: 626]
 
-    # Desired vision set-points
-    x_des: float = 0.5
-    s_des: float = 0.06
+    # Reward weights (Implementation specific based on Equation 9) [cite: 370]
+    w1: float = 1.0  # Weight for Rs (Distance)
+    w2: float = 0.15 # Weight for Rspeed
+    w3: float = 0.15 # Weight for Rstability
+    
+    x_des: float = 0.5               # Desired x_center in normalized image coordinates
+    s_des: float = 0.06              # Desired target area/scale in camera view
 
-    # Reward weights (paper gives structure; weights are implementation choices)
-    w1: float = 1.0
-    w2: float = 0.15
-    w3: float = 0.15
-
-    # Logging/checkpoints
     log_dir: str = "runs/vtd3"
     checkpoint_dir: str = "checkpoints"
     checkpoint_interval_episodes: int = 25
