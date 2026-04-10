@@ -246,7 +246,7 @@ class DroneTrackingEnv(gym.Env):
 
         return state, {"bbox": bbox}
 
-    def step(self, action: np.ndarray):
+    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]: # returns (obs, reward, done, truncated, info)
         """Processes agent action, updates physics, and returns (obs, reward, done, info)."""
         action = np.clip(action, -self.cfg.max_action, self.cfg.max_action)
 
@@ -261,6 +261,8 @@ class DroneTrackingEnv(gym.Env):
         # 2. Perception
         bbox = self._observe_bbox()
         state = vision_state_from_bbox(bbox["x_center"], bbox["area"], self.cfg.x_des, self.cfg.s_des)
+        # s1 is difference is x center
+        # s2 is difference in area (proxy for distance)
 
         # 3. Reward and Termination
         reward, reward_terms = self._compute_reward(state, action)
@@ -268,8 +270,10 @@ class DroneTrackingEnv(gym.Env):
 
         out_of_bounds = not (0 < self.drone_pos[0] < self.cfg.world_x and 0 < self.drone_pos[1] < self.cfg.world_y)
         truncated = self.step_count >= self.cfg.max_episode_steps or out_of_bounds
+        
+        info_dict = {"reward_terms": reward_terms, "out_of_bounds": out_of_bounds, "bbox": bbox}
 
-        return state, float(reward), False, truncated, {"reward_terms": reward_terms, "out_of_bounds": out_of_bounds}
+        return state, float(reward), False, truncated, info_dict
 
     def _apply_drone_control(self, action_xy: np.ndarray):
         """
@@ -315,54 +319,39 @@ class DroneTrackingEnv(gym.Env):
             if _segments_intersect(p1, p2, w1, w2): return True
         return False
 
-    # takes stae, action and computes reward based on the VTD3 composite reward function
+    # takes state, action and computes reward based on the VTD3 composite reward function
     def _compute_reward(self, s_t: np.ndarray, action: np.ndarray) -> Tuple[float, Dict[str, float]]:
-        """
-        Implementation of the VTD3 Composite Reward Function.
-        
-        The reward R consists of three components:
-        1. Rs: Distance deviation reduction 
-        2. Rspeed: High speed incentive for large distances [cite: 379]
-        3. Rstability: Precision/stability incentive near target [cite: 389]
-        """
         s1_curr, s2_curr = s_t[0], s_t[1]
-        s1_prev, s2_prev = self.prev_state[0], self.prev_state[1]
         
-        # fb (forward/backward) and lr (left/right) velocities
-        fb, lr = action[0], action[1]
-        max_action = self.cfg.max_action
+        
+        s1_prev, s2_prev = self.prev_state[0], self.prev_state[1]
+        fb, lr = action[0], action[1] # fb: forward/backward, lr: left/right
 
-        # 1. Distance State Variable Reward (Rs) 
-        # Equation 10: Rewards reduction in absolute state deviation
+        # 1. Rs: Distance Reward (Existing logic is fine)
         rs = (abs(s1_prev) - abs(s1_curr)) + (abs(s2_prev) - abs(s2_curr))
 
-        # 2. Speed Reward (Rspeed) [cite: 379, 383, 384]
-        # Equation 11: If distance > 1.5, speed must be > 90% of max_action
-        rspeed = -10.0  # Default penalty [cite: 379]
+        # 2. Rspeed: High speed ONLY if moving TOWARD the target [SIGN AWARE]
+        rspeed = -10.0
+        # If target is too far (s2 < -1.5), we need positive fb (Forward)
+        far_cond = (s2_curr < -1.5) and (fb > 0.9 * self.cfg.max_action) # if s2_curr is very negative, we want a strong positive fb action to get closer and fb must be above 90% of max_action to reward high speed towards target
         
-        # Condition: (s1 > 1.5 and fb > 0.9 * max) OR (s2 > 1.5 and lr > 0.9 * max)
-        speed_cond_x = (abs(s1_curr) > 1.5) and (abs(fb) > 0.9 * max_action)
-        speed_cond_y = (abs(s2_curr) > 1.5) and (abs(lr) > 0.9 * max_action)
+        # If target is too close (s2 > 1.5), we need negative fb (Backward)
+        close_cond = (s2_curr > 1.5) and (fb < -0.9 * self.cfg.max_action)
         
-        if speed_cond_x or speed_cond_y:
-            rspeed = 1.0 # Positive reward [cite: 379]
+        if far_cond or close_cond:
+            rspeed = 1.0
 
-        # 3. Arrival and Stability Reward (Rstability) [cite: 389-393]
-        # Equation 12: If close, reward low speed (< 0.1)
-        rstability = -10.0 # Default penalty [cite: 393]
-        
-        # Condition: (s1 < 0.015 and fb < 0.1) OR (s2 < 0.02 and lr < 0.1)
-        stable_cond_x = (abs(s1_curr) < 0.015) and (abs(fb) < 0.1)
-        stable_cond_y = (abs(s2_curr) < 0.02) and (abs(lr) < 0.1)
-        
-        if stable_cond_x or stable_cond_y:
-            rstability = 1.0 # Positive reward [cite: 391]
+        # 3. Rstability: Precision near target
+        rstability = -10.0
+        # If error is small, speed must be low
+        if abs(s1_curr) < 0.015 and abs(s2_curr) < 0.02:
+            if abs(fb) < 0.1 and abs(lr) < 0.1:
+                rstability = 1.0
 
-        # Composite Reward [cite: 370]
-        # Equation 9: R = W1*Rs + W2*Rspeed + W3*Rstability
         total_reward = (self.cfg.w1 * rs) + (self.cfg.w2 * rspeed) + (self.cfg.w3 * rstability)
-        
         return total_reward, {"Rs": rs, "Rspeed": rspeed, "Rstability": rstability}
+
+
 
     def close(self):
         """Disconnects the physics client."""

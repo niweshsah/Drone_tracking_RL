@@ -122,7 +122,7 @@ class TD3Agent: # there are 6 neural networks in total: actor, critic, and their
         self.total_it = 0
 
     @torch.no_grad() # This decorator indicates that the following function should not compute gradients, which is important for efficiency during action selection
-    def select_action(self, state: np.ndarray) -> np.ndarray: # Convert the input state to a PyTorch tensor, pass it through the actor network to get the action, and convert it back to a NumPy array for use in the environment
+    def select_action(self, state: np.ndarray) -> np.ndarray: # 
         state_t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         return self.actor(state_t).cpu().numpy()[0]
 
