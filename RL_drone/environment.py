@@ -46,38 +46,65 @@ class EnvConfig:
     w3: float = 1.0                 # Weight for hovering stability
     
     
+    # Starting Positiions
+    drone_start: Tuple[float, float] = (0.0, 100.0) # Initial drone position (x, y)
+    target_start: Tuple[float, float] = (30.0, 100.0) # Initial target position (x, y)
+    
+    trajectory_scale: float = 50.0  # Controls the size of the patterns
+    
+    
 
     vision: VisionConfig = VisionConfig()
 
 
 
-
-
 class TargetTrajectory:
-    """
-    Handles the motion logic for the ground target.
-    Calculates where the target should be at any given time 't' based on a 
-    predefined geometric path.
-    """
-    def __init__(self, mode: str):
+    def __init__(self, mode: str, start_xy: Tuple[float, float], scale: float = 50.0):
         self.mode = mode
-        self.segment_duration = 16.5   # Time to travel between two waypoints
-        self.pause_duration = 2.0      # Time target stays still at waypoints
-        self.start = np.array([30.0, 100.0, 0.0], dtype=np.float32)
+        self.segment_duration = 16.5
+        self.pause_duration = 2.0
+        
+        # Convert start_xy to a 3D numpy array [x, y, z]
+        start_pos = np.array([start_xy[0], start_xy[1], 0.0], dtype=np.float32)
+        L = scale # Use L as a shorthand for scale/length
 
-        # Define waypoints for various difficulty patterns
+        # Generate relative waypoints based on the starting position
         if mode == "triangular":
-            points = [[30, 100, 0], [80, 150, 0], [130, 100, 0], [30, 100, 0]]
+            # An equilateral-ish triangle
+            offsets = [[0, 0, 0], [L, L, 0], [2*L, 0, 0], [0, 0, 0]]
+            
         elif mode == "square":
-            points = [[30, 100, 0], [30, 150, 0], [80, 150, 0], [80, 100, 0], [30, 100, 0]]
+            # A perfect square
+            offsets = [[0, 0, 0], [0, L, 0], [L, L, 0], [L, 0, 0], [0, 0, 0]]
+            
         elif mode == "sawtooth":
-            points = [[30, 100, 0], [60, 140, 0], [70, 95, 0], [100, 145, 0], [110, 90, 0], [140, 140, 0]]
+            # Zig-zagging forward along the X axis
+            offsets = [
+                [0, 0, 0], 
+                [0.6*L, 0.8*L, 0], 
+                [0.8*L, -0.1*L, 0], 
+                [1.4*L, 0.9*L, 0], 
+                [1.6*L, -0.2*L, 0], 
+                [2.2*L, 0.8*L, 0]
+            ]
+            
         elif mode == "square_wave":
-            points = [[30, 100, 0], [60, 100, 0], [60, 140, 0], [100, 140, 0], [100, 100, 0], [140, 100, 0], [140, 140, 0], [180, 140, 0]]
+            # Steps forward along the X axis
+            offsets = [
+                [0, 0, 0], 
+                [0.6*L, 0, 0], 
+                [0.6*L, 0.8*L, 0], 
+                [1.4*L, 0.8*L, 0], 
+                [1.4*L, 0, 0], 
+                [2.2*L, 0, 0], 
+                [2.2*L, 0.8*L, 0], 
+                [3.0*L, 0.8*L, 0]
+            ]
         else:
             raise ValueError(f"Unknown trajectory mode: {mode}")
 
-        self.points = [np.asarray(pt, dtype=np.float32) for pt in points]
+        # Final points = Start Position + Relative Offsets
+        self.points = [start_pos + np.array(off, dtype=np.float32) for off in offsets]
         self.n_segments = len(self.points) - 1
 
     def duration(self) -> float:
@@ -164,14 +191,21 @@ class DroneTrackingEnv(gym.Env):
         self.occlusion_walls_xy = [] # Stores (p1, p2, height) for fast LoS checks
         self._create_occlusions_if_needed(trajectory_mode)
 
-        self.trajectory = TargetTrajectory(trajectory_mode)
+        self.trajectory = TargetTrajectory(
+            trajectory_mode, 
+            self.cfg.target_start, 
+            self.cfg.trajectory_scale
+        )
+        
         self.vision = VisionBBoxEstimator(self.cfg.vision, self.rng)
 
     def _create_drone_body(self) -> int:
         """Constructs a blue box representing the drone."""
         col = p.createCollisionShape(p.GEOM_BOX, halfExtents=[0.25, 0.25, 0.08])
         vis = p.createVisualShape(p.GEOM_BOX, halfExtents=[0.25, 0.25, 0.08], rgbaColor=[0.2, 0.5, 0.9, 1.0])
-        return p.createMultiBody(baseMass=1.2, baseCollisionShapeIndex=col, baseVisualShapeIndex=vis, basePosition=[30, 60, self.cfg.drone_altitude])
+        
+        start_pos = [self.cfg.drone_start[0], self.cfg.drone_start[1], self.cfg.drone_altitude]
+        return p.createMultiBody(baseMass=1.2, baseCollisionShapeIndex=col, baseVisualShapeIndex=vis, basePosition=start_pos)
 
     def _create_target_body(self) -> int:
         """Constructs a red box representing the ground target."""
@@ -189,14 +223,15 @@ class DroneTrackingEnv(gym.Env):
             self.occlusion_wall_ids.append(p.createMultiBody(0, col, vis, c.tolist()))
             self.occlusion_walls_xy.append((np.array([c[0], c[1]-4]), np.array([c[0], c[1]+4]), 5.0))
 
-    def reset(self, *, seed=None, options=None):
+    # returns the initial state and info dict containing the initial bbox after resetting the environment
+    def reset(self, *, seed=None, options=None): 
         """Resets the environment to the starting state for a new episode."""
         if seed is not None: self.rng = np.random.default_rng(seed)
         self.step_count, self.t = 0, 0.0
         self.vision.reset()
 
-        # Initialize positions
-        self.drone_pos = np.array([30.0, 60.0, self.cfg.drone_altitude], dtype=np.float32)
+        # Initialize positions 
+        self.drone_pos = np.array([self.cfg.drone_start[0], self.cfg.drone_start[1], self.cfg.drone_altitude], dtype=np.float32)
         self.drone_vel = np.zeros(3, dtype=np.float32)
         self.target_pos, _ = self.trajectory.sample(0.0)
 

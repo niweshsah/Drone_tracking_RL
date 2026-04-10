@@ -38,16 +38,16 @@ class TrainConfig:
     explore_noise_decay: float = 0.998 # Decay rate per episode [cite: 626]
 
     total_episodes: int = 2000
-    max_episode_steps: int = 2000 # Paper uses MAX_STEPS 2000 total, but 300/ep is standard for tracking
+    max_episode_steps: int = 500 
     control_period: float = 0.3  # 0.3s per step [cite: 626]
 
     # Reward weights (Implementation specific based on Equation 9) [cite: 370]
-    w1: float = 1.0  # Weight for Rs (Distance)
-    w2: float = 0.15 # Weight for Rspeed
-    w3: float = 0.15 # Weight for Rstability
+    # w1: float = 1.0  # Weight for Rs (Distance)
+    # w2: float = 0.15 # Weight for Rspeed
+    # w3: float = 0.15 # Weight for Rstability
     
-    x_des: float = 0.5               # Desired x_center in normalized image coordinates
-    s_des: float = 0.06              # Desired target area/scale in camera view
+    # x_des: float = 0.5               # Desired x_center in normalized image coordinates
+    # s_des: float = 0.06              # Desired target area/scale in camera view
 
     log_dir: str = "runs/vtd3"
     checkpoint_dir: str = "checkpoints"

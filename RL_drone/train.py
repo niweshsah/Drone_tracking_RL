@@ -48,11 +48,9 @@ def main() -> None:
         seed=cfg.seed,
         control_period=cfg.control_period, 
         max_episode_steps=cfg.max_episode_steps,
-        max_action=cfg.max_action,         # 6 m/s 
-        x_des=cfg.x_des,                   # Desired horizontal position 
-        s_des=cfg.s_des,                   # Desired target area (distance proxy) 
-        w1=cfg.w1, w2=cfg.w2, w3=cfg.w3    # Reward weights [cite: 370]
+        max_action=cfg.max_action,
     )
+    
     env = DroneTrackingEnv(env_cfg, trajectory_mode=args.trajectory)
 
     # TD3 Agent Configuration
