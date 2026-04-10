@@ -38,8 +38,7 @@ class EnvConfig:
 
     # Visual State Targets (Normalization constants)
     x_des: float = 0.5               # Desired target x-center in camera (0.0 to 1.0)
-    # s_des: float = 0.06              # Desired target area/scale in camera view
-    s_des: float = 0.0416              # Desired target area/scale in camera view at 4m altitude
+    s_des: float = 0.045              # Desired target area/scale in camera view at 4m altitude
 
     # Reward Weighting Factors (Balances tracking vs. stability)
     w1: float = 2.0                  # Weight for state error reduction
