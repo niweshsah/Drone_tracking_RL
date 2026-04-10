@@ -1,0 +1,7 @@
+.vscode
+__pycache__/
+*mp4
+*pdf
+*.npz
+*.png
+*.pt
