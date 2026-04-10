@@ -26,8 +26,8 @@ class EnvConfig:
     max_episode_steps: int = 500     # Maximum length of one training episode
 
     # Environment Bounds and Altitudes
-    world_x: float = 220.0           # Boundary of the flying area (meters)
-    world_y: float = 220.0
+    world_x: float = 5000.0           # Boundary of the flying area (meters)
+    world_y: float = 500.0
     drone_altitude: float = 4.0      # Drone maintains a fixed flight ceiling
     target_altitude: float = 0.0     # Target moves on the ground
 
@@ -268,7 +268,9 @@ class DroneTrackingEnv(gym.Env):
         reward, reward_terms = self._compute_reward(state, action)
         self.prev_state, self.step_count, self.t = state.copy(), self.step_count + 1, self.t + self.cfg.control_period
 
-        out_of_bounds = not (0 < self.drone_pos[0] < self.cfg.world_x and 0 < self.drone_pos[1] < self.cfg.world_y)
+        out_of_bounds = not (-self.cfg.world_x < self.drone_pos[0] < self.cfg.world_x and -self.cfg.world_y < self.drone_pos[1] < self.cfg.world_y)
+        # out of bounds means drone_x is not between -world_x and world_x OR drone_y is not between -world_y and world_y
+        
         truncated = self.step_count >= self.cfg.max_episode_steps or out_of_bounds
         
         info_dict = {"reward_terms": reward_terms, "out_of_bounds": out_of_bounds, "bbox": bbox}
