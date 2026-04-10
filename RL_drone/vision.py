@@ -6,6 +6,7 @@ import numpy as np
 
 @dataclass
 class VisionConfig:
+    
     img_width: int = 640
     img_height: int = 640
     fov_deg: float = 90.0
@@ -14,6 +15,8 @@ class VisionConfig:
     detection_noise_std_x: float = 0.003
     detection_noise_std_area: float = 0.002
     dropout_prob: float = 0.0
+    x_des: float = 0.5               # Desired target x-center in camera (0.0 to 1.0)
+    s_des: float = 0.045              # Desired target area/scale in camera view
 
 
 class VisionBBoxEstimator:
@@ -49,11 +52,19 @@ class VisionBBoxEstimator:
         s = np.sin(-drone_yaw)
         x_cam = c * rel_world[0] - s * rel_world[1]
         y_cam = s * rel_world[0] + c * rel_world[1]
+        
+        
+        
+        
         # Target behind camera or too close: treat as loss and fallback to tracker prediction.
         if x_cam <= 0.2:
             return self._fallback_bbox(lost=True)
 
-        u_px = self.fx * (y_cam / x_cam) + (self.cfg.img_width / 2.0)
+        # u_px = self.fx * (y_cam / x_cam) + (self.cfg.img_width / 2.0)
+        # + axis is fwd in pybullet and +y is left, so we flip the sign to match the expected camera convention where +x is right.
+        u_px = (self.cfg.img_width / 2.0) - self.fx * (y_cam / x_cam) # u_px is pixel coordinate of the target in the image, where 0 is left edge and img_width is right edge. We flip the sign of y_cam to match the convention that positive y_cam means target is to the left, which should result in a smaller u_px (more to the left in the image).
+        
+        
         x_center = np.clip(u_px / self.cfg.img_width, 0.0, 1.0)
 
         bbox_w_px = self.fx * self.cfg.target_real_width / x_cam

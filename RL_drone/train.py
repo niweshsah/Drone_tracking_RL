@@ -17,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trajectory", type=str, default="triangular", 
                         choices=["triangular", "square", "sawtooth", "square_wave"])
     parser.add_argument("--episodes", type=int, default=2000) # Total episodes from paper
+    parser.add_argument("--max_episode_steps", type=int, default=500) # episode length for tracking tasks
     parser.add_argument("--video-interval", type=int, default=50) # Record every 50 episodes post-exploration
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
@@ -27,13 +28,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    # Hyperparameters from Table 2 of the VTD3 paper [cite: 626]
+    # Hyperparameters from Table 2 of the VTD3 paper
     cfg = TrainConfig(
         seed=args.seed, 
         device=args.device, 
         total_episodes=args.episodes,
-        max_episode_steps=300 # Standard episode length for tracking tasks
+        max_episode_steps=args.max_episode_steps # Standard episode length for tracking tasks
     )
+    
     cfg.log_dir = args.log_dir
     cfg.checkpoint_dir = args.checkpoint_dir
 
@@ -41,19 +43,19 @@ def main() -> None:
     ensure_dir(cfg.checkpoint_dir)
     set_global_seeds(cfg.seed)
 
-    # Initialize environment with VTD3 control period (0.3s) [cite: 626]
+    # Initialize environment with VTD3 control period (0.3s)
     env_cfg = EnvConfig(
         seed=cfg.seed,
         control_period=cfg.control_period, 
         max_episode_steps=cfg.max_episode_steps,
-        max_action=cfg.max_action,         # 6 m/s [cite: 626]
+        max_action=cfg.max_action,         # 6 m/s 
         x_des=cfg.x_des,                   # Desired horizontal position 
         s_des=cfg.s_des,                   # Desired target area (distance proxy) 
         w1=cfg.w1, w2=cfg.w2, w3=cfg.w3    # Reward weights [cite: 370]
     )
     env = DroneTrackingEnv(env_cfg, trajectory_mode=args.trajectory)
 
-    # TD3 Agent Configuration [cite: 626]
+    # TD3 Agent Configuration
     td3_cfg = TD3Config(
         state_dim=cfg.state_dim, action_dim=cfg.action_dim,
         max_action=cfg.max_action, hidden_dim=cfg.hidden_dim,
@@ -78,7 +80,7 @@ def main() -> None:
     
     # Start the Three-Stage Training Strategy 
     for ep in range(cfg.total_episodes): 
-        state, _ = env.reset(seed=cfg.seed + ep) # Periodic target alteration [cite: 604]
+        state, _ = env.reset(seed=cfg.seed + ep) # Periodic target alteration
         ep_reward = 0.0
         ep_track_err = []
         ep_actor_loss, ep_critic_loss = [], []

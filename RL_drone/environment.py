@@ -38,7 +38,8 @@ class EnvConfig:
 
     # Visual State Targets (Normalization constants)
     x_des: float = 0.5               # Desired target x-center in camera (0.0 to 1.0)
-    s_des: float = 0.06              # Desired target area/scale in camera view
+    # s_des: float = 0.06              # Desired target area/scale in camera view
+    s_des: float = 0.0416              # Desired target area/scale in camera view at 4m altitude
 
     # Reward Weighting Factors (Balances tracking vs. stability)
     w1: float = 2.0                  # Weight for state error reduction
@@ -280,10 +281,10 @@ class DroneTrackingEnv(gym.Env):
             if _segments_intersect(p1, p2, w1, w2): return True
         return False
 
-
+    # takes stae, action and computes reward based on the VTD3 composite reward function
     def _compute_reward(self, s_t: np.ndarray, action: np.ndarray) -> Tuple[float, Dict[str, float]]:
         """
-        Implementation of the VTD3 Composite Reward Function[cite: 370].
+        Implementation of the VTD3 Composite Reward Function.
         
         The reward R consists of three components:
         1. Rs: Distance deviation reduction 
