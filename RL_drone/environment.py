@@ -5,12 +5,7 @@ import pybullet_data
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
-# Note: These imports assume you have 'vision.py' in your path as per your snippet.
-try:
-    from vision import VisionBBoxEstimator, VisionConfig, vision_state_from_bbox
-except ImportError:
-    # Fallback placeholders if vision.py is not present locally
-    pass
+from vision import VisionBBoxEstimator, VisionConfig, vision_state_from_bbox
 
 
 
@@ -26,7 +21,7 @@ class EnvConfig:
     max_episode_steps: int = 500     # Maximum length of one training episode
 
     # Environment Bounds and Altitudes
-    world_x: float = 5000.0           # Boundary of the flying area (meters)
+    world_x: float = 500.0           # Boundary of the flying area (meters)
     world_y: float = 500.0
     drone_altitude: float = 4.0      # Drone maintains a fixed flight ceiling
     target_altitude: float = 0.0     # Target moves on the ground

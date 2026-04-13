@@ -2,21 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
 import numpy as np
-
-
-@dataclass
-class VisionConfig:
-    
-    img_width: int = 640
-    img_height: int = 640
-    fov_deg: float = 90.0
-    target_real_width: float = 1.8
-    target_real_height: float = 1.6
-    detection_noise_std_x: float = 0.003
-    detection_noise_std_area: float = 0.002
-    dropout_prob: float = 0.0
-    x_des: float = 0.5               # Desired target x-center in camera (0.0 to 1.0)
-    s_des: float = 0.045              # Desired target area/scale in camera view
+from config import VisionConfig
 
 
 class VisionBBoxEstimator:
