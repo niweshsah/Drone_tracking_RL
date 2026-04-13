@@ -200,7 +200,7 @@ class TD3Agent: # there are 6 neural networks in total: actor, critic, and their
 
 
     def load(self, path: str, strict: bool = True) -> None:
-        payload = torch.load(path, map_location=self.device)
+        payload = torch.load(path, map_location=self.device, weights_only=True)
         self.actor.load_state_dict(payload["actor"], strict=strict)
         self.critic.load_state_dict(payload["critic"], strict=strict)
         self.actor_target.load_state_dict(payload["actor_target"], strict=strict)

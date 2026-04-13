@@ -13,3 +13,4 @@ pixi*
 *.mp4
 .pixi
 .vscode
+*.pth

@@ -91,7 +91,7 @@ class TD3Config: # Configuration dataclass for TD3 hyperparameters and dimension
     state_dim: int
     action_dim: int
     max_action: float
-    hidden_dim: int = 64
+    hidden_dim: int = 256
     actor_lr: float = 1e-3
     critic_lr: float = 1e-3
     gamma: float = 0.99
