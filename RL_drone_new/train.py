@@ -11,24 +11,24 @@ from agent import ReplayBuffer, TD3Agent, TD3Config
 from environment import DroneTrackingEnv  # Removed EnvConfig since env handles it internally
 from utils import TrainConfig, ensure_dir, exponential_decay_schedule, set_global_seeds, write_csv_row
 
-# Optional: If you don't have recorder.py yet, you can comment these out
-try:
-    from recorder import DroneRecorder  
-except ImportError:
-    DroneRecorder = None
-    print("Warning: recorder.py not found. Video recording will be disabled.")
+# # Optional: If you don't have recorder.py yet, you can comment these out
+# try:
+#     from recorder import DroneRecorder  
+# except ImportError:
+#     DroneRecorder = None
+#     print("Warning: recorder.py not found. Video recording will be disabled.")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser("Train VTD3 in headless PyBullet")
     parser.add_argument("--trajectory", type=str, default="triangular", 
                         choices=["triangular", "square", "sawtooth", "square_wave"])
     parser.add_argument("--episodes", type=int, default=2000) 
-    parser.add_argument("--max_episode_steps", type=int, default=1000) # Matched to env.py default
+    parser.add_argument("--max_episode_steps", type=int, default=1000)
     parser.add_argument("--video-interval", type=int, default=50) 
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--log-dir", type=str, default="runs/vtd3")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints")
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_new")
     return parser.parse_args()
 
 def main() -> None:
@@ -69,9 +69,9 @@ def main() -> None:
     agent = TD3Agent(td3_cfg)
     replay = ReplayBuffer(cfg.state_dim, cfg.action_dim, cfg.buffer_size)
     
-    recorder = None
-    if DroneRecorder is not None:
-        recorder = DroneRecorder(base_dir=os.path.join(args.log_dir, "videos"))
+    # recorder = None
+    # if DroneRecorder is not None:
+    #     recorder = DroneRecorder(base_dir=os.path.join(args.log_dir, "videos"))
 
     writer = None 
     try:
@@ -93,12 +93,12 @@ def main() -> None:
         ep_track_err = []
         ep_actor_loss, ep_critic_loss = [], []
 
-        is_pure_policy = ep >= (cfg.random_episodes + cfg.noise_episodes)
-        should_record = is_pure_policy and (ep % args.video_interval == 0) and (recorder is not None)
+        # is_pure_policy = ep >= (cfg.random_episodes + cfg.noise_episodes)
+        # should_record = is_pure_policy and (ep % args.video_interval == 0) and (recorder is not None)
 
-        if should_record:
-            recorder.start(ep, args.trajectory)
-            p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0) 
+        # if should_record:
+        #     recorder.start(ep, args.trajectory)
+        #     p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0) 
 
         done = False
         truncated = False
@@ -129,12 +129,12 @@ def main() -> None:
             replay.add(state, action, reward, next_state, float(done))
 
             # Visualization for recording
-            if should_record:
-                p.resetDebugVisualizerCamera(
-                    cameraDistance=20.0, cameraYaw=45, cameraPitch=-45,
-                    cameraTargetPosition=env.drone_pos.tolist()
-                )
-                recorder.add_visual_aids(env.drone_pos, env.target_pos, env.cfg.control_period)
+            # if should_record:
+            #     p.resetDebugVisualizerCamera(
+            #         cameraDistance=20.0, cameraYaw=45, cameraPitch=-45,
+            #         cameraTargetPosition=env.drone_pos.tolist()
+            #     )
+            #     recorder.add_visual_aids(env.drone_pos, env.target_pos, env.cfg.control_period)
 
             state = next_state
             ep_reward += reward
@@ -149,8 +149,8 @@ def main() -> None:
 
             global_step += 1
 
-        if should_record:
-            recorder.stop()
+        # if should_record:
+        #     recorder.stop()
 
         # Logging and Checkpointing
         avg_track_err = float(np.mean(ep_track_err)) if ep_track_err else 0.0

@@ -7,7 +7,7 @@ from typing import Dict, Tuple
 # Below has:
 # init( start_xy: Tuple[float, float], scale: float = 50.0, mode: str = "triangular") 
 # sample(t: float) -> Tuple[np.ndarray, np.ndarray] which returns position and velocity at time t
-from .target_trajectory import TargetTrajectory 
+from target_trajectory import TargetTrajectory 
 
 
 
