@@ -4,15 +4,20 @@ import pybullet as p
 import pybullet_data
 from typing import Dict, Tuple
 import math
+import os
 
 # Below has:
 # init( start_xy: Tuple[float, float], scale: float = 50.0, mode: str = "triangular") 
 # sample(t: float) -> Tuple[np.ndarray, np.ndarray] which returns position and velocity at time t
 from target_trajectory import TargetTrajectory
-
-Drone_obj_path = "./Drone_Costum/Material/drone_costum.obj"
-
 from rewards import RewardDrone
+
+ENV_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Safely construct the paths to your assets
+Drone_obj_path = os.path.join(ENV_DIR, "Drone_Costum", "Material", "drone_costum.obj")
+TEXTURE_PATH = os.path.join(ENV_DIR, "grass", "textures", "coast_sand_rocks_02_diff_4k.jpg")
+
 
 class DroneTrackingEnv(gym.Env):
     def __init__(self, cfg=None, trajectory_mode: str = "triangular", GUI_mode: bool = False):
@@ -21,7 +26,7 @@ class DroneTrackingEnv(gym.Env):
         # Enhanced config for Feedforward/Residual Control
         self.cfg = cfg if cfg is not None else type('obj', (object,), {
             'seed': 42, 
-            'max_action': 15.0,          # Absolute max velocity of drone (m/s)  for each axis
+            'max_action': 15.0,         # Absolute max velocity of drone (m/s)  for each axis
             'max_residual_vel': 2.0,    # Max velocity CORRECTION the RL agent can apply
             'target_vel_noise': 0.2,    # Standard deviation of BoT-SORT velocity estimation noise
             'max_accel': 10.0,          # Physics acceleration limit
@@ -36,6 +41,7 @@ class DroneTrackingEnv(gym.Env):
         })
         
         self.GUI_mode = GUI_mode
+        self.default_trajectory_mode = trajectory_mode
         
         
         self.rng = np.random.default_rng(self.cfg.seed)
@@ -56,7 +62,7 @@ class DroneTrackingEnv(gym.Env):
         self.plane_id = p.loadURDF("plane.urdf") # Ground plane for visual reference
         
         # Load your realistic image texture
-        texture_id = p.loadTexture("./grass/textures/coast_sand_rocks_02_diff_4k.jpg")
+        texture_id = p.loadTexture(TEXTURE_PATH)
         
         # Apply the texture to the base of the plane (linkIndex -1)
         p.changeVisualShape(
@@ -161,22 +167,64 @@ class DroneTrackingEnv(gym.Env):
             vy_norm
         ], dtype=np.float32)
 
-    def reset(self, *, seed=None, options=None):
-        if seed is not None: self.rng = np.random.default_rng(seed)
-        self.step_count, self.t = 0, 0.0 
-        self.prev_action = np.zeros(2, dtype=np.float32) # Reset previous action for smoothness penalty
+    # def reset(self, *, seed=None, options=None):
+    #     if seed is not None: self.rng = np.random.default_rng(seed)
+    #     self.step_count, self.t = 0, 0.0 
+    #     self.prev_action = np.zeros(2, dtype=np.float32) # Reset previous action for smoothness penalty
 
-        self.drone_pos = np.array([self.cfg.drone_start[0], self.cfg.drone_start[1], self.cfg.drone_altitude], dtype=np.float32) # bring back the drone to its initial position
-        self.drone_vel = np.zeros(3, dtype=np.float32) # set initial velocity to zero for consistency
+    #     self.drone_pos = np.array([self.cfg.drone_start[0], self.cfg.drone_start[1], self.cfg.drone_altitude], dtype=np.float32) # bring back the drone to its initial position
+    #     self.drone_vel = np.zeros(3, dtype=np.float32) # set initial velocity to zero for consistency
         
-        # Unpack both position AND velocity
+    #     # Unpack both position AND velocity
+    #     self.target_pos, self.target_vel = self.trajectory.sample(0.0)
+
+    #     p.resetBasePositionAndOrientation(self.drone_id, self.drone_pos.tolist(), [0,0,0,1])
+    #     p.resetBasePositionAndOrientation(self.target_id, self.target_pos.tolist(), [0,0,0,1])
+
+    #     bbox = self._observe_bbox()
+    #     return self._get_obs(bbox), {"bbox": bbox}
+    
+    def reset(self, *, seed=None, options=None):
+        # 1. Standard Gym Seeding
+        super().reset(seed=seed)
+        if seed is not None: 
+            self.rng = np.random.default_rng(seed)
+            
+        self.step_count, self.t = 0, 0.0 
+        self.prev_action = np.zeros(2, dtype=np.float32)
+
+        # 2. Extract trajectory_mode from options (standard Gymnasium pattern)
+        traj_mode = self.default_trajectory_mode
+        if options is not None and "trajectory_mode" in options:
+            traj_mode = options["trajectory_mode"]
+
+        # 3. Instantiate the hot-swapped trajectory
+        self.trajectory = TargetTrajectory(
+            start_xy=self.cfg.target_start, 
+            scale=self.cfg.trajectory_scale, 
+            mode=traj_mode
+        )
+
+        # 4. Reset physical drone state
+        self.drone_pos = np.array([self.cfg.drone_start[0], self.cfg.drone_start[1], self.cfg.drone_altitude], dtype=np.float32)
+        self.drone_vel = np.zeros(3, dtype=np.float32)
+        
+        # Unpack both position AND velocity from the newly selected trajectory
         self.target_pos, self.target_vel = self.trajectory.sample(0.0)
 
         p.resetBasePositionAndOrientation(self.drone_id, self.drone_pos.tolist(), [0,0,0,1])
         p.resetBasePositionAndOrientation(self.target_id, self.target_pos.tolist(), [0,0,0,1])
 
+        # 5. Return Observation and Info dict
         bbox = self._observe_bbox()
-        return self._get_obs(bbox), {"bbox": bbox}
+        
+        # Include current trajectory in info to ensure train.py logging works perfectly
+        info = {
+            "bbox": bbox, 
+            "current_trajectory": traj_mode
+        }
+        
+        return self._get_obs(bbox), info
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         action = np.clip(action, -1.0, 1.0)

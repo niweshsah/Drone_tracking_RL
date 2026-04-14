@@ -36,8 +36,8 @@ class TrainConfig:
     noise_clip: float = 0.5
 
     # --- EXPLORATION SCHEDULE ---
-    random_episodes: int = 1000   
-    noise_episodes: int = 500    
+    random_episodes: int = 50   
+    noise_episodes: int = 1450    
     update_interval: int = 50     
     explore_noise: float = 0.15   
     explore_noise_decay: float = 0.998 
