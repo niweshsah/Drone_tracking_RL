@@ -7,7 +7,7 @@ from environment import DroneTrackingEnv
 from agent import TD3Agent, TD3Config
 from utils import ensure_dir
 
-def run_forensic_analysis(checkpoint_path="/home/teaching/RL/checkpoints_updated_reward/best.pt"):
+def run_forensic_analysis(checkpoint_path="/home/teaching/RL/checkpoints_updated_reward_updated_speed/best.pt"):
     print("="*60)
     print(" 🚁 FLIGHT RECORDER: TRIANGULAR TRAJECTORY FORENSICS")
     print("="*60)

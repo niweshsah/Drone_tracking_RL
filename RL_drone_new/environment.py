@@ -3,11 +3,16 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 from typing import Dict, Tuple
+import math
 
 # Below has:
 # init( start_xy: Tuple[float, float], scale: float = 50.0, mode: str = "triangular") 
 # sample(t: float) -> Tuple[np.ndarray, np.ndarray] which returns position and velocity at time t
-from target_trajectory import TargetTrajectory 
+from target_trajectory import TargetTrajectory
+
+Drone_obj_path = "./Drone_Costum/Material/drone_costum.obj"
+
+
 
 from rewards import RewardDrone
 
@@ -29,6 +34,7 @@ class DroneTrackingEnv(gym.Env):
             'world_x': 5000, 'world_y': 5000, 'max_episode_steps': 1000,
             'drone_start': [0, 0], 'target_start': [0, 0], 'trajectory_scale': 50.0,
             's_des': 0.05, 'vision': None,
+            'drone_size' : 0.1 # b/w 0 and 1
         })
         
         self.GUI_mode = GUI_mode
@@ -60,43 +66,65 @@ class DroneTrackingEnv(gym.Env):
             mode=trajectory_mode
         )
         self.prev_action = np.zeros(2, dtype=np.float32)
+        
+        # Compute reward(state, action) -> total reward, reward_terms
         self._compute_reward = RewardDrone()._compute_reward
 
     def _create_drone_body(self) -> int:
+        """
+        Maintains the 0.3 radius sphere collision for identical dynamics, 
+        but maps a high-fidelity 3D mesh for visuals.
+        """
         col = p.createCollisionShape(p.GEOM_SPHERE, radius=0.3)
-        vis = p.createVisualShape(p.GEOM_SPHERE, radius=0.3, rgbaColor=[0.2, 0.5, 0.9, 1.0])
-        return p.createMultiBody(baseMass=1.0, baseCollisionShapeIndex=col, baseVisualShapeIndex=vis, 
-                                 basePosition=[self.cfg.drone_start[0], self.cfg.drone_start[1], self.cfg.drone_altitude])
+        visual_orientation = p.getQuaternionFromEuler([math.pi/2, 0 , 0])
+        drone_size = self.cfg.drone_size
 
+        try:
+            vis = p.createVisualShape(p.GEOM_MESH, fileName= Drone_obj_path, meshScale=[drone_size, drone_size, drone_size],  visualFrameOrientation=visual_orientation)
+        except p.error:
+            # Fallback placeholder if no OBJ is found
+            vis = p.createVisualShape(p.GEOM_BOX, halfExtents=[0.4, 0.4, 0.1], rgbaColor=[0.1, 0.1, 0.1, 1.0])
+
+        return p.createMultiBody(
+            baseMass=1.0, 
+            baseCollisionShapeIndex=col, 
+            baseVisualShapeIndex=vis, 
+            basePosition=[self.cfg.drone_start[0], self.cfg.drone_start[1], self.cfg.drone_altitude]
+        )
+
+    # def _create_target_body(self) -> int:
+    #     col = p.createCollisionShape(p.GEOM_BOX, halfExtents=[0.8, 0.8, 0.2])
+    #     vis = p.createVisualShape(p.GEOM_BOX, halfExtents=[0.8, 0.8, 0.2], rgbaColor=[0.9, 0.2, 0.2, 1.0])
+    #     return p.createMultiBody(baseMass=0.0, baseCollisionShapeIndex=col, baseVisualShapeIndex=vis)
+    
     def _create_target_body(self) -> int:
-        col = p.createCollisionShape(p.GEOM_BOX, halfExtents=[0.8, 0.8, 0.2])
-        vis = p.createVisualShape(p.GEOM_BOX, halfExtents=[0.8, 0.8, 0.2], rgbaColor=[0.9, 0.2, 0.2, 1.0])
-        return p.createMultiBody(baseMass=0.0, baseCollisionShapeIndex=col, baseVisualShapeIndex=vis)
+        """Loads a Husky rover model from pybullet_data as the target instead of a box."""
+        # Using a built-in rover model. We set useFixedBase=True because we are 
+        # kinematically teleporting it via self.trajectory.sample(), not driving its wheels.
+        target_id = p.loadURDF("husky/husky.urdf", useFixedBase=True)
+        return target_id
     
     def _update_gui_camera(self):
-        """Updates the PyBullet GUI camera to follow the drone."""
+        """Updates the PyBullet GUI camera to smoothly follow the drone."""
         
-        # Calculate the drone's movement direction (Yaw)
-        # If the drone is moving, point the camera in the direction of velocity
-        speed = np.linalg.norm(self.drone_vel[:2])
-        if speed > 0.1:
-            # math.atan2(y, x) gives the angle in radians, convert to degrees
-            yaw = np.degrees(np.arctan2(self.drone_vel[1], self.drone_vel[0]))
-        else:
-            # If hovering/stopped, just default to 0 or keep the previous yaw
-            yaw = getattr(self, "last_camera_yaw", 0)
-            
-        self.last_camera_yaw = yaw
+        try:
+            # Grab the current camera settings (so we don't override your mouse movements!)
+            cam_info = p.getDebugVisualizerCamera(physicsClientId=self._client)
+            current_yaw = cam_info[8]
+            current_pitch = cam_info[9]
+            current_dist = cam_info[10]
+        except Exception:
+            # Fallback defaults if the camera hasn't initialized yet
+            current_yaw = 45.0
+            current_pitch = -35.0
+            current_dist = 6.0
 
-        # Set camera parameters
-        camera_distance = 6.0      # How far back from the drone
-        camera_pitch = -25.0       # Angle looking down at the drone
-        
-        # The camera focuses on the drone's exact position
+        # Update ONLY the target position to follow the drone. 
+        # The camera will glide smoothly without rotating violently.
         p.resetDebugVisualizerCamera(
-            cameraDistance=camera_distance,
-            cameraYaw=yaw - 90, # PyBullet yaw offset adjustment
-            cameraPitch=camera_pitch,
+            cameraDistance=current_dist,
+            cameraYaw=current_yaw,
+            cameraPitch=current_pitch,
             cameraTargetPosition=self.drone_pos.tolist(),
             physicsClientId=self._client
         )
@@ -206,7 +234,23 @@ class DroneTrackingEnv(gym.Env):
     def _advance_target(self, dt: float):
         # Now explicitly storing the velocity returned by the trajectory
         self.target_pos, self.target_vel = self.trajectory.sample(self.t + dt)
-        p.resetBasePositionAndOrientation(self.target_id, self.target_pos.tolist(), [0,0,0,1])
+        
+        # --- DYNAMIC HUSKY ROTATION ---
+        target_speed = np.linalg.norm(self.target_vel[:2])
+        
+        # If moving, calculate the angle of travel. If stopped, keep facing the same way.
+        if target_speed > 0.01:
+            yaw = math.atan2(self.target_vel[1], self.target_vel[0])
+        else:
+            yaw = getattr(self, "husky_yaw", 0.0)
+        self.husky_yaw = yaw
+
+        # The Husky stays flat on the ground, so Roll=0 and Pitch=0
+        target_orientation = p.getQuaternionFromEuler([0, 0, yaw])
+        # ------------------------------
+
+        # Apply the position and the calculated orientation
+        p.resetBasePositionAndOrientation(self.target_id, self.target_pos.tolist(), target_orientation)
 
     def close(self):
         if p.isConnected(self._client): p.disconnect(self._client)

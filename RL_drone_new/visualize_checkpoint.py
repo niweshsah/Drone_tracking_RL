@@ -1,11 +1,9 @@
 import time
-import torch
-import numpy as np
 import pybullet as p
 import logging
 
-from RL_drone_new.environment import DroneTrackingEnv
-from RL_drone_new.agent import TD3Agent, TD3Config
+from environment import DroneTrackingEnv
+from agent import TD3Agent, TD3Config
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
@@ -59,7 +57,8 @@ def enjoy(checkpoint_path: str, trajectory_mode: str = "triangular"):
             step = 0
             
             # Optional: Let the physics engine settle before flying
-            for _ in range(10): p.stepSimulation()
+            for _ in range(10): 
+                p.stepSimulation()
             
             done = False
             truncated = False
@@ -95,7 +94,8 @@ def enjoy(checkpoint_path: str, trajectory_mode: str = "triangular"):
 
 if __name__ == "__main__":
     # Adjust this path if your 'best.pt' is located elsewhere
-    CHECKPOINT = "checkpoints/best.pt" 
+    # CHECKPOINT = "/home/rocinate/Desktop/DL-workspace-pytorch/RL_drone_new/checkpoints_new/best.pt" 
+    CHECKPOINT = "//home/rocinate/Desktop/DL-workspace-pytorch/RL_drone_new/checkpoints_updated_reward/best.pt" 
     
     # You can change this to "square", "sawtooth", or "square_wave" to test generalization!
     TRAJECTORY = "triangular"  
