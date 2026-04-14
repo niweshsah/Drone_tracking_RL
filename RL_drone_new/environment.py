@@ -12,8 +12,6 @@ from target_trajectory import TargetTrajectory
 
 Drone_obj_path = "./Drone_Costum/Material/drone_costum.obj"
 
-
-
 from rewards import RewardDrone
 
 class DroneTrackingEnv(gym.Env):
@@ -32,7 +30,7 @@ class DroneTrackingEnv(gym.Env):
             'control_period': 0.05, 
             'sim_dt': 1/240,
             'world_x': 5000, 'world_y': 5000, 'max_episode_steps': 1000,
-            'drone_start': [0, 0], 'target_start': [0, 0], 'trajectory_scale': 50.0,
+            'drone_start': [0, 0], 'target_start': [0, 0], 'trajectory_scale': 40.0,
             's_des': 0.05, 'vision': None,
             'drone_size' : 0.1 # b/w 0 and 1
         })
@@ -49,13 +47,33 @@ class DroneTrackingEnv(gym.Env):
         # Obs: [x_norm, y_norm, w_norm, h_norm, drone_vx_norm, drone_vy_norm]
         self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(6,), dtype=np.float32)
 
-        self._client = p.connect(p.DIRECT) if not GUI_mode else p.connect(p.GUI)
+        self._client = p.connect(p.GUI) if self.GUI_mode else p.connect(p.DIRECT)
         
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         
         p.setGravity(0.0, 0.0, -9.81) 
 
         self.plane_id = p.loadURDF("plane.urdf") # Ground plane for visual reference
+        
+        # Load your realistic image texture
+        texture_id = p.loadTexture("./grass/textures/coast_sand_rocks_02_diff_4k.jpg")
+        
+        # Apply the texture to the base of the plane (linkIndex -1)
+        p.changeVisualShape(
+            self.plane_id, 
+            -1, 
+            textureUniqueId=texture_id,
+            rgbaColor=[1, 1, 1, 1], # Keep base color white so it doesn't tint the image
+            specularColor=[0.1, 0.1, 0.1] # Turn down shininess (default is very glossy)
+        )
+        
+        if GUI_mode:
+            p.configureDebugVisualizer(p.COV_ENABLE_SHADOWS, 1)
+            p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
+            # Set a nice "afternoon" sun angle for good shadows
+            p.configureDebugVisualizer(lightPosition=[10, 10, 10])
+            
+            
         self.drone_id = self._create_drone_body() # spherical drone body
         self.target_id = self._create_target_body() # box target body
 
