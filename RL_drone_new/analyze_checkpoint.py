@@ -91,7 +91,7 @@ def evaluate_trajectory(agent, trajectory_mode, num_episodes=5, max_steps=1000):
 
 def main():
     parser = argparse.ArgumentParser("Detailed VTD3 Checkpoint Analysis")
-    parser.add_argument("--checkpoint", type=str, default="/home/teaching/RL/checkpoints_new/ep_1800.pt", help="Path to model weights")
+    parser.add_argument("--checkpoint", type=str, default="/home/teaching/RL/checkpoints_updated_reward/best.pt", help="Path to model weights")
     parser.add_argument("--episodes-per-track", type=int, default=5, help="Episodes to run per trajectory")
     args = parser.parse_args()
 

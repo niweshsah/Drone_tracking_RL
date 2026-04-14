@@ -9,7 +9,7 @@ from typing import Dict, Tuple
 # sample(t: float) -> Tuple[np.ndarray, np.ndarray] which returns position and velocity at time t
 from target_trajectory import TargetTrajectory 
 
-
+from rewards import RewardDrone
 
 class DroneTrackingEnv(gym.Env):
     def __init__(self, cfg=None, trajectory_mode: str = "triangular", GUI_mode: bool = False):
@@ -18,7 +18,7 @@ class DroneTrackingEnv(gym.Env):
         # Enhanced config for Feedforward/Residual Control
         self.cfg = cfg if cfg is not None else type('obj', (object,), {
             'seed': 42, 
-            'max_action': 5.0,          # Absolute max velocity of drone (m/s)
+            'max_action': 15.0,          # Absolute max velocity of drone (m/s)  for each axis
             'max_residual_vel': 2.0,    # Max velocity CORRECTION the RL agent can apply
             'target_vel_noise': 0.2,    # Standard deviation of BoT-SORT velocity estimation noise
             'max_accel': 10.0,          # Physics acceleration limit
@@ -26,13 +26,9 @@ class DroneTrackingEnv(gym.Env):
             'drone_altitude': 5.0, 
             'control_period': 0.05, 
             'sim_dt': 1/240,
-            'world_x': 500, 'world_y': 500, 'max_episode_steps': 1000,
+            'world_x': 5000, 'world_y': 5000, 'max_episode_steps': 1000,
             'drone_start': [0, 0], 'target_start': [0, 0], 'trajectory_scale': 50.0,
             's_des': 0.05, 'vision': None,
-            'reward_weights': {
-                'align': 2.0, 'scale': -1.5, 'smooth': -0.2, 'energy': -0.05, 'boundary': -1.0, 'crash': -50.0
-            }
-            
         })
         
         self.GUI_mode = GUI_mode
@@ -64,6 +60,7 @@ class DroneTrackingEnv(gym.Env):
             mode=trajectory_mode
         )
         self.prev_action = np.zeros(2, dtype=np.float32)
+        self._compute_reward = RewardDrone()._compute_reward
 
     def _create_drone_body(self) -> int:
         col = p.createCollisionShape(p.GEOM_SPHERE, radius=0.3)
@@ -166,19 +163,19 @@ class DroneTrackingEnv(gym.Env):
         bbox = self._observe_bbox()
         state = self._get_obs(bbox)
 
-        target_lost = (abs(state[0]) > 0.98 or abs(state[1]) > 0.98 or bbox["area"] <= 0)
+        target_lost = (abs(state[0]) > 0.98 or abs(state[1]) > 0.98 or bbox["area"] <= 0) # if xn or yn is near the edge of the image or if the target is not visible at all, we consider it lost
         out_of_bounds = not (-self.cfg.world_x < self.drone_pos[0] < self.cfg.world_x 
                              and -self.cfg.world_y < self.drone_pos[1] < self.cfg.world_y)
         
         # 7. Reward Calculation
-        reward, reward_terms = self._compute_reward(state, action, target_lost)
+        reward, reward_terms = self._compute_reward(state, action, target_lost, self.prev_action)
 
         self.step_count += 1
         self.t += self.cfg.control_period
         self.prev_action = action.copy()
 
-        # terminated = target_lost
-        terminated = False # For this version, we won't consider target loss as a terminal condition, but this can be adjusted based on desired behavior
+        terminated = target_lost
+        # terminated = False # For this version, we won't consider target loss as a terminal condition, but this can be adjusted based on desired behavior
         truncated = self.step_count >= self.cfg.max_episode_steps or out_of_bounds
 
         return state, float(reward), terminated, truncated, {"reward_terms": reward_terms, "bbox": bbox}
@@ -198,42 +195,6 @@ class DroneTrackingEnv(gym.Env):
 
         p.resetBasePositionAndOrientation(self.drone_id, self.drone_pos.tolist(), [0,0,0,1])
         p.resetBaseVelocity(self.drone_id, self.drone_vel.tolist())
-
-
-    # Reward function now includes:
-    # 1. Alignment reward based on distance to target center: r_align = 2.0 * exp(-5.0 * dist_err)
-    # 2. Scale reward based on how well the observed area matches desired size: r_scale = -1.5 * abs((w_n * h_n) - s_des)
-    # 3. Smoothness penalty on changes in the RESIDUAL action (encouraging smoother corrections): r_smooth = -0.2 * sum((action - prev_action)^2)
-    # 4. Optional energy penalty to encourage minimal corrections when well-aligned
-    # 5. Boundary penalty for being too far from the target
-    # 6. Crash penalty for losing the target
-    
-    def _compute_reward(self, state: np.ndarray, action: np.ndarray, target_lost: bool) -> Tuple[float, Dict]:
-        
-        x_n, y_n, w_n, h_n, _, _ = state # Unpack normalized bbox and velocities
-        
-        dist_err = np.sqrt(x_n**2 + y_n**2) # Distance error in normalized image space
-        
-        wt_dict = self.cfg.reward_weights
-        w1 , w2, w3, w4, w5, w6 = wt_dict['align'], wt_dict['scale'], wt_dict['smooth'], wt_dict['energy'], wt_dict['boundary'], wt_dict['crash']
-        
-        r_align = w1 * np.exp(-5.0 * dist_err) # Strong exponential reward for being close to the target center
-        
-        r_scale = 0 * w2
-        # r_scale = -1.5 * abs((w_n * h_n) - self.cfg.s_des) # Penalize deviation from desired scale (size in image)
-        # not needed as drone has fix altitude
-        
-        # The Smoothness penalty now punishes high-frequency changes in the RESIDUAL action
-        r_smooth = w3 * np.sum(np.square(action - self.prev_action)) # Encourage smoother corrections by penalizing large changes in the residual action from one step to the next
-        
-        # Optional: Add a small energy penalty to incentivize the agent to output [0,0] when perfectly aligned
-        r_energy = w4 * np.sum(np.square(action)) # Penalize large corrections to encourage minimal intervention when well-aligned
-
-        r_boundary = 0 * w5 * max(0, dist_err - 0.75) # not considering boundary penalty in this version, but can be adjusted based on desired behavior
-        r_crash = w6 * 0 if target_lost else 0.0 # not  considering target loss as a crash in this version, but can be adjusted based on desired behavior
-
-        total = r_align + r_scale + r_smooth + r_energy + r_boundary + r_crash
-        return total, {"align": r_align, "smooth": r_smooth, "crash": r_crash}
 
     def _observe_bbox(self) -> Dict[str, float]:
         rel_pos = self.target_pos - self.drone_pos

@@ -1,43 +1,45 @@
 import numpy as np
 from typing import Dict, Tuple
 
-
-
-
-
-
 class RewardDrone:
-    def __init__(self, cfg):
-        self.cfg = cfg
-        self.prev_state = None
+    def __init__(self):
+        self.reward_wts = {
+                'align': 2.0, 'scale': -1.5, 'smooth': -0.8, 'energy': -0.1, 'boundary': -1.0, 'crash': -50.0
+            }
 
-def _compute_reward(self, s_t: np.ndarray, action: np.ndarray) -> Tuple[float, Dict[str, float]]:
-        s1_curr, s2_curr = s_t[0], s_t[1]
-        
-        
-        s1_prev, s2_prev = self.prev_state[0], self.prev_state[1]
-        fb, lr = action[0], action[1] # fb: forward/backward, lr: left/right
+    # state is [x_n, y_n, w_n, h_n, v_xn, v_yn] where n denotes normalized values
+    # xn and yn are in image plane normalized by image width and height, wn and hn are normalized by image dimensions, v_xn and v_yn are normalized velocities
+    
+      # Reward function now includes:
+    # 1. Alignment reward based on distance to target center: r_align = 2.0 * exp(-5.0 * dist_err)
+    # 2. Scale reward based on how well the observed area matches desired size: r_scale = -1.5 * abs((w_n * h_n) - s_des)
+    # 3. Smoothness penalty on changes in the RESIDUAL action (encouraging smoother corrections): r_smooth = -0.2 * sum((action - prev_action)^2)
+    # 4. Optional energy penalty to encourage minimal corrections when well-aligned
+    # 5. Boundary penalty for being too far from the target
+    # 6. Crash penalty for losing the target
+    def _compute_reward(self, state: np.ndarray, action: np.ndarray, target_lost: bool, prev_action: np.ndarray) -> Tuple[float, Dict]:
+            
+            x_n, y_n, w_n, h_n, _, _ = state # Unpack normalized bbox and velocities
+            
+            dist_err = np.sqrt(x_n**2 + y_n**2) # Distance error in normalized image space 
+            
+            wt_dict = self.reward_wts
+            w1 , w2, w3, w4, w5, w6 = wt_dict['align'], wt_dict['scale'], wt_dict['smooth'], wt_dict['energy'], wt_dict['boundary'], wt_dict['crash']
+            
+            r_align = w1 * np.exp(-5.0 * dist_err) # Strong exponential reward for being close to the target center
+            
+            r_scale = 0 * w2
+            # r_scale = -1.5 * abs((w_n * h_n) - self.cfg.s_des) # Penalize deviation from desired scale (size in image)
+            # not needed as drone has fix altitude
+            
+            # The Smoothness penalty now punishes high-frequency changes in the RESIDUAL action
+            r_smooth = w3 * np.sum(np.square(action - prev_action)) # Encourage smoother corrections by penalizing large changes in the residual action from one step to the next
+            
+            # Optional: Add a small energy penalty to incentivize the agent to output [0,0] when perfectly aligned
+            r_energy = w4 * np.sum(np.square(action)) # Penalize large corrections to encourage minimal intervention when well-aligned
 
-        # 1. Rs: Distance Reward (Existing logic is fine)
-        rs = (abs(s1_prev) - abs(s1_curr)) + (abs(s2_prev) - abs(s2_curr))
+            r_far =  w5 * max(0, dist_err - 0.7) 
+            r_crash = w6 if target_lost else 0.0 # not  considering target loss as a crash in this version, but can be adjusted based on desired behavior
 
-        # 2. Rspeed: High speed ONLY if moving TOWARD the target [SIGN AWARE]
-        rspeed = -10.0
-        # If target is too far (s2 < -1.5), we need positive fb (Forward)
-        far_cond = (s2_curr < -1.5) and (fb > 0.9 * self.cfg.max_action) # if s2_curr is very negative, we want a strong positive fb action to get closer and fb must be above 90% of max_action to reward high speed towards target
-        
-        # If target is too close (s2 > 1.5), we need negative fb (Backward)
-        close_cond = (s2_curr > 1.5) and (fb < -0.9 * self.cfg.max_action)
-        
-        if far_cond or close_cond:
-            rspeed = 1.0
-
-        # 3. Rstability: Precision near target
-        rstability = -10.0
-        # If error is small, speed must be low
-        if abs(s1_curr) < 0.015 and abs(s2_curr) < 0.02:
-            if abs(fb) < 0.1 and abs(lr) < 0.1:
-                rstability = 1.0
-
-        total_reward = (self.cfg.w1 * rs) + (self.cfg.w2 * rspeed) + (self.cfg.w3 * rstability)
-        return total_reward, {"Rs": rs, "Rspeed": rspeed, "Rstability": rstability}
+            total = r_align + r_scale + r_smooth + r_energy + r_far + r_crash
+            return total, {"align": r_align, "smooth": r_smooth, "crash": r_crash}

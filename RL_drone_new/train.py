@@ -11,12 +11,6 @@ from agent import ReplayBuffer, TD3Agent, TD3Config
 from environment import DroneTrackingEnv  # Removed EnvConfig since env handles it internally
 from utils import TrainConfig, ensure_dir, exponential_decay_schedule, set_global_seeds, write_csv_row
 
-# # Optional: If you don't have recorder.py yet, you can comment these out
-# try:
-#     from recorder import DroneRecorder  
-# except ImportError:
-#     DroneRecorder = None
-#     print("Warning: recorder.py not found. Video recording will be disabled.")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser("Train VTD3 in headless PyBullet")
@@ -28,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--log-dir", type=str, default="runs/vtd3")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_new")
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_updated_reward_updated_speed")
     return parser.parse_args()
 
 def main() -> None:
@@ -69,9 +63,7 @@ def main() -> None:
     agent = TD3Agent(td3_cfg)
     replay = ReplayBuffer(cfg.state_dim, cfg.action_dim, cfg.buffer_size)
     
-    # recorder = None
-    # if DroneRecorder is not None:
-    #     recorder = DroneRecorder(base_dir=os.path.join(args.log_dir, "videos"))
+
 
     writer = None 
     try:
@@ -92,13 +84,6 @@ def main() -> None:
         ep_reward = 0.0
         ep_track_err = []
         ep_actor_loss, ep_critic_loss = [], []
-
-        # is_pure_policy = ep >= (cfg.random_episodes + cfg.noise_episodes)
-        # should_record = is_pure_policy and (ep % args.video_interval == 0) and (recorder is not None)
-
-        # if should_record:
-        #     recorder.start(ep, args.trajectory)
-        #     p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0) 
 
         done = False
         truncated = False
@@ -128,13 +113,7 @@ def main() -> None:
             # We ONLY pass 'done', never 'truncated', to the replay buffer to avoid Bellman zero-traps.
             replay.add(state, action, reward, next_state, float(done))
 
-            # Visualization for recording
-            # if should_record:
-            #     p.resetDebugVisualizerCamera(
-            #         cameraDistance=20.0, cameraYaw=45, cameraPitch=-45,
-            #         cameraTargetPosition=env.drone_pos.tolist()
-            #     )
-            #     recorder.add_visual_aids(env.drone_pos, env.target_pos, env.cfg.control_period)
+
 
             state = next_state
             ep_reward += reward
@@ -148,9 +127,6 @@ def main() -> None:
                     ep_critic_loss.append(loss_dict["critic_loss"])
 
             global_step += 1
-
-        # if should_record:
-        #     recorder.stop()
 
         # Logging and Checkpointing
         avg_track_err = float(np.mean(ep_track_err)) if ep_track_err else 0.0
