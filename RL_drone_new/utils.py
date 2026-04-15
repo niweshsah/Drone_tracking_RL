@@ -37,10 +37,12 @@ class TrainConfig:
 
     # --- EXPLORATION SCHEDULE ---
     random_episodes: int = 50   
-    noise_episodes: int = 1450    
+    # noise_episodes: int = 1450    
+    noise_episodes: int = 3450    
     update_interval: int = 50     
     explore_noise: float = 0.15   
-    explore_noise_decay: float = 0.998 
+    # explore_noise_decay: float = 0.998 
+    explore_noise_decay: float = 0.9992 # increased for spline curriculum
 
     # --- EPISODE LIMITS ---
     total_episodes: int = 2000

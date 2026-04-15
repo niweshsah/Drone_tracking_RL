@@ -14,19 +14,25 @@ from utils import TrainConfig, ensure_dir, exponential_decay_schedule, set_globa
 # Curriculum definition
 # ---------------------------------------------------------------------------
 
-TRAJECTORIES: List[str] = ["triangular", "square", "sawtooth", "square_wave"]
-
-# Each entry: (start_fraction_of_LEARNING_episodes, trajectories_unlocked)
-# "Learning episodes" = total_episodes - random_episodes
-# Phase boundaries are fractions of *that* window, not total episodes,
-# so the curriculum always starts the moment the agent begins learning.
-CURRICULUM: List[Tuple[float, List[str]]] = [
-    (0.00, ["triangular"]),
-    (0.25, ["triangular", "square"]),
-    (0.50, ["triangular", "square", "sawtooth"]),
-    (0.75, ["triangular", "square", "sawtooth", "square_wave"]),
+TRAJECTORIES: List[str] = [
+    "square", "triangular", "sawtooth", "square_wave", 
+    "spline_easy", "spline_medium", "spline_hard"
 ]
 
+# The ultimate generalization curriculum
+CURRICULUM: List[Tuple[float, List[str]]] = [
+    # 0% - 25%: Master basic physics on predictable paths
+    (0.00, ["square", "spline_easy"]),
+    
+    # 25% - 50%: Introduce sharper geometric turns and moderate randomness
+    (0.25, ["square", "triangular", "spline_easy", "spline_medium"]),
+    
+    # 50% - 75%: Remove easy shapes, force tracking on complex geometries and splines
+    (0.50, ["sawtooth", "square_wave", "spline_medium"]),
+    
+    # 75% - 100%: Pure chaos. Only random, highly aggressive splines.
+    (0.75, ["spline_medium", "spline_hard"]),
+]
 
 def get_curriculum_trajectories(ep: int, random_episodes: int, total_episodes: int) -> List[str]:
     """
@@ -63,17 +69,21 @@ def get_curriculum_phase(ep: int, random_episodes: int, total_episodes: int) -> 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser("Train TD3 drone tracker with curriculum learning")
+    # parser.add_argument("--trajectory", type=str, default="curriculum",
+    #                     choices=["triangular", "square", "sawtooth", "square_wave", "curriculum"],
+    #                     help="'curriculum' enables multi-trajectory curriculum learning; "
+    #                          "any single name locks training to that trajectory only.")
     parser.add_argument("--trajectory", type=str, default="curriculum",
-                        choices=["triangular", "square", "sawtooth", "square_wave", "curriculum"],
-                        help="'curriculum' enables multi-trajectory curriculum learning; "
-                             "any single name locks training to that trajectory only.")
-    parser.add_argument("--episodes", type=int, default=2000)
+                        choices=[
+                            "triangular", "square", "sawtooth", "square_wave", 
+                            "spline_easy", "spline_medium", "spline_hard", "curriculum"
+                        ])
+    parser.add_argument("--episodes", type=int, default=4000) # increased for spline curriculum
     parser.add_argument("--max-episode-steps", type=int, default=1000)
-    parser.add_argument("--video-interval", type=int, default=50)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--log-dir", type=str, default="runs/vtd3_curriculum")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_curriculum")
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_spline")
     return parser.parse_args()
 
 
