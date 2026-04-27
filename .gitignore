@@ -1,4 +1,4 @@
-*.pt
+# *.pt
 *.png
 *.npz
 
@@ -14,3 +14,6 @@ pixi*
 .pixi
 .vscode
 *.pth
+
+events*
+*.zip

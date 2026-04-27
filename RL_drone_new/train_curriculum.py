@@ -19,8 +19,10 @@ TRAJECTORIES: List[str] = [
     "spline_easy", "spline_medium", "spline_hard"
 ]
 
+
 # The ultimate generalization curriculum
 CURRICULUM: List[Tuple[float, List[str]]] = [
+    
     # 0% - 25%: Master basic physics on predictable paths
     (0.00, ["square", "spline_easy"]),
     
@@ -33,6 +35,8 @@ CURRICULUM: List[Tuple[float, List[str]]] = [
     # 75% - 100%: Pure chaos. Only random, highly aggressive splines.
     (0.75, ["spline_medium", "spline_hard"]),
 ]
+
+
 
 def get_curriculum_trajectories(ep: int, random_episodes: int, total_episodes: int) -> List[str]:
     """
