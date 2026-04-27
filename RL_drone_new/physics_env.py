@@ -65,9 +65,8 @@ class DroneTrackingEnv(gym.Env):
         # Action: [delta_vx, delta_vy] normalized residual velocity commands [-1, 1]
         self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
         
-        # --- LEVEL 2 PBRL UPDATE ---
-        # state space is 10
-        self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(10,), dtype=np.float32)
+        # Obs: [x, y, w, h, vx, vy, prev_ax, prev_ay, stop_dist_x, stop_dist_y, rel_vx, rel_vy, prev_prev_ax, prev_prev_ay]
+        self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(14,), dtype=np.float32)
 
         self._client = p.connect(p.GUI) if self.GUI_mode else p.connect(p.DIRECT)
         
@@ -98,10 +97,10 @@ class DroneTrackingEnv(gym.Env):
 
         self.trajectory = None
         self.current_trajectory_mode = trajectory_mode
-        self.prev_action = np.zeros(2, dtype=np.float32)
         
-        # We store this at the class level so the observation and step function use the exact same estimation
-        self.current_estimated_target_vel = np.zeros(2, dtype=np.float32)
+        # Initialize action histories for jerk prevention
+        self.prev_action = np.zeros(2, dtype=np.float32)
+        self.prev_prev_action = np.zeros(2, dtype=np.float32)
         
         self._compute_reward = RewardDrone()._compute_reward
 
@@ -123,6 +122,7 @@ class DroneTrackingEnv(gym.Env):
         )
 
     def _create_target_body(self) -> int:
+        """Loads a Husky rover model from pybullet_data silently."""
         with SuppressPyBulletLog():
             target_id = p.loadURDF("husky/husky.urdf", useFixedBase=True)
         return target_id
@@ -147,40 +147,38 @@ class DroneTrackingEnv(gym.Env):
         )
 
     def _get_obs(self, bbox: Dict[str, float]) -> np.ndarray:
-        # --- LEVEL 2 PBRL: PHYSICS STATE AUGMENTATION ---
-        
-        vx, vy = self.drone_vel[0], self.drone_vel[1]
-        vx_norm = np.clip(vx / self.cfg.max_action, -1.0, 1.0)
-        vy_norm = np.clip(vy / self.cfg.max_action, -1.0, 1.0)
+        # 1. Normalize ego-velocities
+        vx_norm = np.clip(self.drone_vel[0] / self.cfg.max_action, -1, 1)
+        vy_norm = np.clip(self.drone_vel[1] / self.cfg.max_action, -1, 1)
 
-        # 1. Target Velocity Estimation Augmentation
-        # Let the RL agent "see" the feedforward base so it knows what it is correcting.
-        tx, ty = self.current_estimated_target_vel
-        tx_norm = np.clip(tx / self.cfg.max_action, -1.0, 1.0)
-        ty_norm = np.clip(ty / self.cfg.max_action, -1.0, 1.0)
-
-        # 2. Braking Distance Augmentation (d = v^2 / 2a)
-        # Explicitly tell the network how many meters it will drift if it applies max brakes right now.
-        max_brake_dist = (self.cfg.max_action ** 2) / (2.0 * self.cfg.max_accel)
+        # 2. Physics: Kinematic Stopping Distance
+        stop_dist_x = np.sign(self.drone_vel[0]) * (self.drone_vel[0]**2) / (2 * self.cfg.max_accel)
+        stop_dist_y = np.sign(self.drone_vel[1]) * (self.drone_vel[1]**2) / (2 * self.cfg.max_accel)
+        max_stop_dist = (self.cfg.max_action**2) / (2 * self.cfg.max_accel)
+        stop_dist_x_norm = np.clip(stop_dist_x / max_stop_dist, -1.0, 1.0)
+        stop_dist_y_norm = np.clip(stop_dist_y / max_stop_dist, -1.0, 1.0)
         
-        # Keep the sign to tell the network *which direction* it is drifting
-        brake_x = np.sign(vx) * (vx**2) / (2.0 * self.cfg.max_accel)
-        brake_y = np.sign(vy) * (vy**2) / (2.0 * self.cfg.max_accel)
-        
-        brake_x_norm = np.clip(brake_x / max_brake_dist, -1.0, 1.0)
-        brake_y_norm = np.clip(brake_y / max_brake_dist, -1.0, 1.0)
+        # 3. Physics: Relative Velocity
+        rel_vel_x = self.target_vel[0] - self.drone_vel[0]
+        rel_vel_y = self.target_vel[1] - self.drone_vel[1]
+        rel_vx_norm = np.clip(rel_vel_x / (2 * self.cfg.max_action), -1.0, 1.0)
+        rel_vy_norm = np.clip(rel_vel_y / (2 * self.cfg.max_action), -1.0, 1.0)
 
         return np.array([
-            bbox.get("x_center", 0.0), # center x of the target in the image (normalized) 
-            bbox.get("y_center", 0.0), # center y of the target in the image (normalized)
-            bbox.get("width", 0.0),  # width of the target in the image (normalized)
-            bbox.get("height", 0.0),  # height of the target in the image (normalized)
-            vx_norm,  # velocity x of the drone (normalized)
-            vy_norm, # velocity y of the drone (normalized)
-            tx_norm,        # target velocity x estimation (normalized) - feedforward term for PBRL
-            ty_norm,        # target velocity y estimation (normalized) - feedforward term for PBRL
-            brake_x_norm,   # normalized braking distance in x direction (physics feature 3 for PBRL)
-            brake_y_norm    # normalized braking distance in y direction (physics feature 4 for PBRL)
+            bbox.get("x_center", 0.0), 
+            bbox.get("y_center", 0.0), 
+            bbox.get("width", 0.0), 
+            bbox.get("height", 0.0), 
+            vx_norm, 
+            vy_norm,
+            self.prev_action[0],      # Action at t-1 (X)
+            self.prev_action[1],      # Action at t-1 (Y)
+            stop_dist_x_norm,         # Stopping Distance (X)
+            stop_dist_y_norm,         # Stopping Distance (Y)
+            rel_vx_norm,              # Relative Velocity (X)
+            rel_vy_norm,              # Relative Velocity (Y)
+            self.prev_prev_action[0], # Action at t-2 (X)
+            self.prev_prev_action[1]  # Action at t-2 (Y)
         ], dtype=np.float32)
     
     def reset(self, *, seed=None, options=None):
@@ -189,7 +187,10 @@ class DroneTrackingEnv(gym.Env):
             self.rng = np.random.default_rng(seed)
             
         self.step_count, self.t = 0, 0.0 
+        
+        # Reset action histories
         self.prev_action = np.zeros(2, dtype=np.float32)
+        self.prev_prev_action = np.zeros(2, dtype=np.float32)
 
         traj_mode = self.default_trajectory_mode
         if options is not None and "trajectory_mode" in options:
@@ -197,6 +198,7 @@ class DroneTrackingEnv(gym.Env):
             
         self.current_trajectory_mode = traj_mode
 
+        # --- Handle Teleop vs Autonomous Initialization ---
         if self.current_trajectory_mode == "teleop":
             self.trajectory = None
             self.target_pos = np.array([self.cfg.target_start[0], self.cfg.target_start[1], 0.0], dtype=np.float32)
@@ -215,9 +217,6 @@ class DroneTrackingEnv(gym.Env):
         p.resetBasePositionAndOrientation(self.drone_id, self.drone_pos.tolist(), [0,0,0,1])
         p.resetBasePositionAndOrientation(self.target_id, self.target_pos.tolist(), [0,0,0,1])
 
-        # Generate initial estimation before taking observation
-        self.current_estimated_target_vel = self.target_vel[:2] + self.rng.normal(0, self.cfg.target_vel_noise, size=2)
-
         bbox = self._observe_bbox()
         info = {"bbox": bbox, "current_trajectory": traj_mode}
         
@@ -226,12 +225,13 @@ class DroneTrackingEnv(gym.Env):
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         action = np.clip(action, -1.0, 1.0)
         
-        # 1. Calculate Command using the pre-observed estimation
+        # Simulate BoT-SORT estimation noise
+        estimated_target_vel = self.target_vel[:2] + self.rng.normal(0, self.cfg.target_vel_noise, size=2)
         residual_vel = action * self.cfg.max_residual_vel
-        desired_vel_xy = self.current_estimated_target_vel + residual_vel
+        
+        desired_vel_xy = estimated_target_vel + residual_vel
         desired_vel_xy = np.clip(desired_vel_xy, -self.cfg.max_action, self.cfg.max_action)
 
-        # 2. Physics Update
         self._apply_drone_control(desired_vel_xy)
         self._advance_target(self.cfg.control_period)
         
@@ -241,14 +241,7 @@ class DroneTrackingEnv(gym.Env):
         if self.GUI_mode:
             self._update_gui_camera()
 
-        # 3. Perception for NEXT step
         bbox = self._observe_bbox()
-        
-        # Calculate new estimated velocity for the NEXT state observation
-        # In actual deployment, this would come from a vision-based velocity estimator like BoT-SORT. Here we simulate it with noise.
-        self.current_estimated_target_vel = self.target_vel[:2] + self.rng.normal(0, self.cfg.target_vel_noise, size=2)
-            
-            
         state = self._get_obs(bbox)
 
         target_lost = (abs(state[0]) > 0.98 or abs(state[1]) > 0.98 or bbox["area"] <= 0) 
@@ -259,6 +252,9 @@ class DroneTrackingEnv(gym.Env):
 
         self.step_count += 1
         self.t += self.cfg.control_period
+        
+        # Cascade the action history for the next observation
+        self.prev_prev_action = self.prev_action.copy()
         self.prev_action = action.copy()
 
         terminated = target_lost
@@ -290,11 +286,14 @@ class DroneTrackingEnv(gym.Env):
         return {"x_center": x_img, "y_center": y_img, "width": 0.1, "height": 0.1, "area": area}
 
     def _advance_target(self, dt: float):
+        # --- TELEOPERATION MODE ---
         if self.current_trajectory_mode == "teleop":
             desired_accel = np.zeros(2, dtype=np.float32)
             
+            # Read Keyboard inputs
             if self.GUI_mode:
                 keys = p.getKeyboardEvents()
+                # W = +Y, S = -Y, A = -X, D = +X
                 if ord('w') in keys and (keys[ord('w')] & p.KEY_IS_DOWN):
                     desired_accel[1] += self.teleop_a_limit
                 if ord('s') in keys and (keys[ord('s')] & p.KEY_IS_DOWN):
@@ -304,28 +303,34 @@ class DroneTrackingEnv(gym.Env):
                 if ord('d') in keys and (keys[ord('d')] & p.KEY_IS_DOWN):
                     desired_accel[0] += self.teleop_a_limit
             
+            # Apply dynamic braking if no keys are pressed
             if np.linalg.norm(desired_accel) == 0.0:
-                brake_accel = -self.target_vel[:2] * 4.0 
+                brake_accel = -self.target_vel[:2] * 4.0 # Aggressive friction factor
                 brake_mag = np.linalg.norm(brake_accel)
                 if brake_mag > self.teleop_a_limit:
                     brake_accel = (brake_accel / brake_mag) * self.teleop_a_limit
                 desired_accel = brake_accel
             
+            # Enforce max acceleration limit (diagonal safety)
             accel_mag = np.linalg.norm(desired_accel)
             if accel_mag > self.teleop_a_limit:
                 desired_accel = (desired_accel / accel_mag) * self.teleop_a_limit
                 
+            # Kinematic update for Target
             self.target_vel[:2] += desired_accel * dt
             
+            # Enforce max velocity limit
             vel_mag = np.linalg.norm(self.target_vel[:2])
             if vel_mag > self.teleop_v_limit:
                 self.target_vel[:2] = (self.target_vel[:2] / vel_mag) * self.teleop_v_limit
                 
             self.target_pos[:2] += self.target_vel[:2] * dt
             
+        # --- AUTONOMOUS MODE ---
         else:
             self.target_pos, self.target_vel = self.trajectory.sample(self.t + dt)
         
+        # --- UPDATE HUSKY ORIENTATION ---
         target_speed = np.linalg.norm(self.target_vel[:2])
         if target_speed > 0.01:
             yaw = math.atan2(self.target_vel[1], self.target_vel[0])

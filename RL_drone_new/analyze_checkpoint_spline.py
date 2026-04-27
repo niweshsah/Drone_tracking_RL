@@ -144,7 +144,7 @@ def generate_trajectory_plots(track_name, telemetry_data, save_dir="analysis_rep
 
 def main():
     parser = argparse.ArgumentParser("Detailed VTD3 Checkpoint Analysis")
-    parser.add_argument("--checkpoint", type=str, default="/home/teaching/RL/checkpoints_spline/best.pt", help="Path to model weights")
+    parser.add_argument("--checkpoint", type=str, default="/home/teaching/RL/checkpoints_spline/final.pt", help="Path to model weights")
     parser.add_argument("--episodes-per-track", type=int, default=5, help="Episodes to run per trajectory")
     args = parser.parse_args()
 

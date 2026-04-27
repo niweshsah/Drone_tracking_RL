@@ -19,7 +19,7 @@ class RewardDrone:
     # 6. Crash penalty for losing the target
     def _compute_reward(self, state: np.ndarray, action: np.ndarray, target_lost: bool, prev_action: np.ndarray) -> Tuple[float, Dict]:
             
-            x_n, y_n, w_n, h_n, _, _ = state # Unpack normalized bbox and velocities
+            x_n, y_n, w_n, h_n, _, _ = state[:6] # Unpack normalized bbox and velocities
             
             dist_err = np.sqrt(x_n**2 + y_n**2) # Distance error in normalized image space 
             

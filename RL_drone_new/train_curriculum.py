@@ -87,7 +87,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--log-dir", type=str, default="runs/vtd3_curriculum")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_spline")
+    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints_spline_windy")
     return parser.parse_args()
 
 

@@ -196,7 +196,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate a trained TD3 Drone Tracker")
     
     # Checkpoint path
-    parser.add_argument("--checkpoint", type=str, required=True, help="Path to the .pt file (e.g., final.pt or ep_4000.pt)")
+    parser.add_argument("--checkpoint", type=str, default="/home/rocinate/Desktop/DL-workspace-pytorch/RL_drone_new/checkpoints_spline/best.pt", help="Path to the .pt file (e.g., final.pt or ep_4000.pt)")
     parser.add_argument("--headless", action="store_true", help="Run without PyBullet GUI (much faster)")
     parser.add_argument("--episodes", type=int, default=1, help="Number of episodes per trajectory")
     
