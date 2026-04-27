@@ -156,13 +156,54 @@ class TD3Agent: # there are 6 neural networks in total: actor, critic, and their
         
         
         
+        # # Delayed actor updates
+        # if self.total_it % self.cfg.policy_delay == 0: # Delayed policy updates: The actor is updated less frequently than the critic
+        #     actor_loss = -self.critic.q1(state, self.actor(state)).mean() # compute the actor loss as the negative mean Q-value predicted by the critic for the actions output by the actor (we want to maximize this Q-value, hence the negative sign)
+        #     self.actor_opt.zero_grad(set_to_none=True)
+        #     actor_loss.backward()
+        #     self.actor_opt.step()
+
+        #     self._soft_update(self.critic_target, self.critic)
+        #     self._soft_update(self.actor_target, self.actor)
+            
+            
         # Delayed actor updates
-        if self.total_it % self.cfg.policy_delay == 0: # Delayed policy updates: The actor is updated less frequently than the critic
-            actor_loss = -self.critic.q1(state, self.actor(state)).mean() # compute the actor loss as the negative mean Q-value predicted by the critic for the actions output by the actor (we want to maximize this Q-value, hence the negative sign)
+        if self.total_it % self.cfg.policy_delay == 0:
+            # 1. Get the current actions from the Actor
+            actions = self.actor(state)
+            
+            # 2. Standard RL Objective: Maximize expected Q-value (minimize negative Q)
+            q_loss = -self.critic.q1(state, actions).mean()
+            
+            # --- PINN: PHYSICS-INFORMED REGULARIZATION ---
+            
+            # Factor A: Jerk / Smoothness Penalty
+            # In our 14-dim state, indices [6, 7] hold the prev_action (X and Y)
+            prev_actions = state[:, 6:8] 
+            
+            # Penalize the squared difference between current and previous action (delta_a)
+            # This forces the neural network's derivatives to be smooth
+            jerk_penalty = F.mse_loss(actions, prev_actions)
+            
+            # Factor B: Control Effort / Energy Penalty
+            # Penalize overly aggressive absolute actions to simulate battery conservation
+            energy_penalty = (actions ** 2).mean()
+            
+            # ---------------------------------------------
+            
+            # 3. Combine losses with lambda weights
+            # Start small. If lambda is too high, the drone will just hover safely and ignore the target.
+            lambda_jerk = 0.5 
+            lambda_energy = 0.05 
+            
+            actor_loss = q_loss + (lambda_jerk * jerk_penalty) + (lambda_energy * energy_penalty)
+
+            # 4. Backpropagate the combined physics + RL loss
             self.actor_opt.zero_grad(set_to_none=True)
             actor_loss.backward()
             self.actor_opt.step()
 
+            # 5. Soft update target networks
             self._soft_update(self.critic_target, self.critic)
             self._soft_update(self.actor_target, self.actor)
 
