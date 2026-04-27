@@ -1,354 +1,3 @@
-# import argparse
-# import csv
-# import logging
-# import os
-# import time
-# from typing import Dict, List, Tuple
-
-# import numpy as np
-# import pybullet as p
-# import matplotlib.pyplot as plt
-# import pandas as pd
-
-# from environment import DroneTrackingEnv
-# from agent import TD3Agent, TD3Config
-
-# # ==========================================
-# # 1. BASELINE CONTROLLER
-# # ==========================================
-# class BaselinePDController:
-#     """
-#     A simple PD controller to serve as a baseline comparison against the RL agent.
-#     It uses the bounding box center (position error) and current velocity to generate a residual action.
-#     """
-#     def __init__(self, kp: float = 1.0, kd: float = 0.2):
-#         self.kp = kp
-#         self.kd = kd
-
-#     def select_action(self, obs: np.ndarray) -> np.ndarray:
-#         # obs: [x_center, y_center, width, height, vx_norm, vy_norm]
-#         # Bounding box centers act as proportional error; ego-velocity acts as derivative dampener
-#         err_x, err_y = obs[0], obs[1]
-#         vel_x, vel_y = obs[4], obs[5]
-        
-#         action_x = self.kp * err_x - self.kd * vel_x
-#         action_y = self.kp * err_y - self.kd * vel_y
-        
-#         return np.clip([action_x, action_y], -1.0, 1.0)
-
-
-# # ==========================================
-# # 2. ADVANCED METRICS CALCULATION
-# # ==========================================
-# def compute_advanced_metrics(
-#     drone_pos: np.ndarray, target_pos: np.ndarray, 
-#     drone_vel: np.ndarray, target_vel: np.ndarray, 
-#     actions: np.ndarray, dt: float
-# ) -> Dict[str, float]:
-#     """Calculates an extensive list of kinematic and control metrics."""
-    
-#     # Spatial Metrics
-#     pos_errors = np.linalg.norm(target_pos[:, :2] - drone_pos[:, :2], axis=1)
-#     rmse_error = np.sqrt(np.mean(pos_errors**2))
-#     max_error = np.max(pos_errors)
-#     mean_error = np.mean(pos_errors)
-    
-#     # Velocity Metrics
-#     drone_speeds = np.linalg.norm(drone_vel[:, :2], axis=1)
-#     target_speeds = np.linalg.norm(target_vel[:, :2], axis=1)
-#     speed_deviations = np.abs(drone_speeds - target_speeds)
-#     mean_speed_dev = np.mean(speed_deviations)
-    
-#     # Acceleration & Jerk
-#     if len(drone_vel) > 1:
-#         accel = np.diff(drone_vel[:, :2], axis=0) / dt
-#         if len(accel) > 1:
-#             jerk = np.diff(accel, axis=0) / dt
-#             jerk_magnitudes = np.linalg.norm(jerk, axis=1)
-#             jerk_rms = np.sqrt(np.mean(jerk_magnitudes**2))
-#         else:
-#             jerk_rms = 0.0
-#     else:
-#         jerk_rms = 0.0
-
-#     # Control Effort (Smoothness of commands)
-#     action_magnitudes = np.linalg.norm(actions, axis=1)
-#     mean_control_effort = np.mean(action_magnitudes)
-#     action_changes = np.linalg.norm(np.diff(actions, axis=0), axis=1) if len(actions) > 1 else [0]
-#     action_jitter = np.mean(action_changes)
-
-#     return {
-#         "RMSE (m)": float(rmse_error),
-#         "Max Error (m)": float(max_error),
-#         "Mean Error (m)": float(mean_error),
-#         "Speed Dev (m/s)": float(mean_speed_dev),
-#         "Jerk RMS (m/s^3)": float(jerk_rms),
-#         "Control Effort": float(mean_control_effort),
-#         "Action Jitter": float(action_jitter)
-#     }
-
-
-# # ==========================================
-# # 3. PLOTTING UTILITIES
-# # ==========================================
-# def plot_comparisons(rl_data: dict, pd_data: dict, traj_name: str, save_dir: str, dt: float):
-#     """Generates and saves comparison plots between RL and PD controllers."""
-#     os.makedirs(save_dir, exist_ok=True)
-    
-#     # Extract data
-#     rl_d_pos, rl_t_pos, rl_d_vel, rl_t_vel, rl_act = rl_data["d_pos"], rl_data["t_pos"], rl_data["d_vel"], rl_data["t_vel"], rl_data["act"]
-#     pd_d_pos, pd_t_pos, pd_d_vel, pd_t_vel, pd_act = pd_data["d_pos"], pd_data["t_pos"], pd_data["d_vel"], pd_data["t_vel"], pd_data["act"]
-    
-#     rl_time = np.arange(len(rl_d_pos)) * dt
-#     pd_time = np.arange(len(pd_d_pos)) * dt
-
-#     fig, axs = plt.subplots(2, 2, figsize=(16, 12))
-#     fig.suptitle(f"Performance Comparison: RL vs PD on '{traj_name}' trajectory", fontsize=16, fontweight='bold')
-
-#     # Plot 1: 2D Trajectory (Top-Down)
-#     ax = axs[0, 0]
-#     ax.plot(rl_t_pos[:, 0], rl_t_pos[:, 1], 'k--', label="Target Trajectory", linewidth=2)
-#     ax.plot(rl_d_pos[:, 0], rl_d_pos[:, 1], 'b-', label="RL Drone", alpha=0.8, linewidth=2)
-#     ax.plot(pd_d_pos[:, 0], pd_d_pos[:, 1], 'r-', label="PD Drone", alpha=0.8, linewidth=2)
-#     ax.set_title("2D Spatial Trajectory")
-#     ax.set_xlabel("X Position (m)")
-#     ax.set_ylabel("Y Position (m)")
-#     ax.legend()
-#     ax.grid(True, linestyle=':')
-
-#     # Plot 2: Tracking Error over Time
-#     ax = axs[0, 1]
-#     rl_err = np.linalg.norm(rl_t_pos[:, :2] - rl_d_pos[:, :2], axis=1)
-#     pd_err = np.linalg.norm(pd_t_pos[:, :2] - pd_d_pos[:, :2], axis=1)
-#     ax.plot(rl_time, rl_err, 'b-', label="RL Error", linewidth=2)
-#     ax.plot(pd_time[:len(pd_err)], pd_err, 'r-', label="PD Error", linewidth=2)
-#     ax.set_title("Tracking Distance Error Over Time")
-#     ax.set_xlabel("Time (s)")
-#     ax.set_ylabel("Euclidean Error (m)")
-#     ax.legend()
-#     ax.grid(True, linestyle=':')
-
-#     # Plot 3: Speed Tracking
-#     ax = axs[1, 0]
-#     target_speed = np.linalg.norm(rl_t_vel[:, :2], axis=1) # Target speed is the same for both
-#     rl_speed = np.linalg.norm(rl_d_vel[:, :2], axis=1)
-#     pd_speed = np.linalg.norm(pd_d_vel[:, :2], axis=1)
-#     ax.plot(rl_time, target_speed, 'k--', label="Target Speed", linewidth=2)
-#     ax.plot(rl_time, rl_speed, 'b-', label="RL Drone Speed", alpha=0.8)
-#     ax.plot(pd_time, pd_speed, 'r-', label="PD Drone Speed", alpha=0.8)
-#     ax.set_title("Speed Profile")
-#     ax.set_xlabel("Time (s)")
-#     ax.set_ylabel("Speed (m/s)")
-#     ax.legend()
-#     ax.grid(True, linestyle=':')
-
-#     # Plot 4: Control Effort (Action Norms)
-#     ax = axs[1, 1]
-#     rl_act_norm = np.linalg.norm(rl_act, axis=1)
-#     pd_act_norm = np.linalg.norm(pd_act, axis=1)
-#     ax.plot(rl_time, rl_act_norm, 'b-', label="RL Control Effort", alpha=0.8)
-#     ax.plot(pd_time, pd_act_norm, 'r-', label="PD Control Effort", alpha=0.8)
-#     ax.set_title("Control Effort (Action Magnitude) Over Time")
-#     ax.set_xlabel("Time (s)")
-#     ax.set_ylabel("Norm of Action")
-#     ax.legend()
-#     ax.grid(True, linestyle=':')
-
-#     plt.tight_layout()
-#     plot_path = os.path.join(save_dir, f"comparison_{traj_name}.png")
-#     plt.savefig(plot_path, dpi=300)
-#     plt.close()
-#     logging.info(f"    -> Saved plot to {plot_path}")
-
-
-# # ==========================================
-# # 4. MAIN EVALUATION LOOP
-# # ==========================================
-# def run_episode(env: DroneTrackingEnv, agent_or_controller, trajectory: str, render: bool) -> Tuple[float, dict, bool]:
-#     """Runs a single episode and returns reward, kinematics history, and termination status."""
-#     obs, _ = env.reset(seed=42, options={"trajectory_mode": trajectory}) # Fixed seed for fair comparison
-    
-#     ep_reward = 0.0
-#     d_pos, t_pos, d_vel, t_vel, acts = [], [], [], [], []
-    
-#     if render:
-#         for _ in range(10): p.stepSimulation() 
-    
-#     done, truncated = False, False
-    
-#     while not (done or truncated):
-#         action = agent_or_controller.select_action(obs)
-#         next_obs, reward, done, truncated, info = env.step(action)
-        
-#         d_pos.append(env.drone_pos.copy())
-#         t_pos.append(env.target_pos.copy())
-#         d_vel.append(env.drone_vel.copy())
-#         t_vel.append(env.target_vel.copy())
-#         acts.append(action.copy())
-        
-#         ep_reward += reward
-#         obs = next_obs
-        
-#         if render:
-#             p.addUserDebugLine(env.target_pos, env.drone_pos, [0, 1, 0], lineWidth=2.5, lifeTime=env.cfg.control_period)
-#             time.sleep(env.cfg.control_period)
-
-#     history = {
-#         "d_pos": np.array(d_pos), "t_pos": np.array(t_pos),
-#         "d_vel": np.array(d_vel), "t_vel": np.array(t_vel), "act": np.array(acts)
-#     }
-#     return ep_reward, history, done
-
-
-# def evaluate_checkpoint(checkpoint_path: str, trajectories: List[str], render: bool = True):
-#     ckpt_dir = os.path.dirname(checkpoint_path) or "."
-#     plots_dir = os.path.join(ckpt_dir, "eval_plots")
-    
-#     logging.basicConfig(
-#         level=logging.INFO, format='%(message)s',
-#         handlers=[logging.FileHandler(os.path.join(ckpt_dir, "advanced_eval.log"), mode='w'), logging.StreamHandler()]
-#     )
-    
-#     logging.info("="*80)
-#     logging.info(f"ADVANCED EVALUATION: {checkpoint_path}")
-#     logging.info("="*80)
-
-#     env = DroneTrackingEnv(cfg=None, trajectory_mode="square", GUI_mode=render)
-#     dt = env.cfg.control_period
-
-#     # Init RL Agent
-#     # td3_cfg = TD3Config(state_dim=env.observation_space.shape[0], action_dim=env.action_space.shape[0], max_action=1.0)
-#     td3_cfg = TD3Config(
-#         state_dim=env.observation_space.shape[0], 
-#         action_dim=env.action_space.shape[0], 
-#         max_action=1.0, 
-#         hidden_dim=256  # <-- Force this to 256 to match your trained weights
-#     )
-#     rl_agent = TD3Agent(td3_cfg)
-#     try:
-#         rl_agent.load(checkpoint_path, strict=False)
-#         rl_agent.actor.eval()
-#         logging.info("✔ RL Weights loaded successfully.\n")
-#     except Exception as e:
-#         logging.error(f"Failed to load checkpoint: {e}")
-#         env.close()
-#         return
-
-#     # Init Baseline Controller
-#     pd_controller = BaselinePDController(kp=1.5, kd=0.3)
-
-#     all_metrics = []
-
-#     try:
-#         for traj in trajectories:
-#             if traj == "teleop":
-#                 logging.warning("Skipping 'teleop' for automated comparative evaluation.")
-#                 continue
-
-#             logging.info(f"--- Evaluating Trajectory: {traj.upper()} ---")
-
-#             # # 1. Evaluate RL Agent
-#             # rl_reward, rl_hist, rl_lost = run_episode(env, rl_agent, traj, render)
-#             # rl_metrics = compute_advanced_metrics(**rl_hist, dt=dt)
-            
-#             # # 2. Evaluate PD Controller
-#             # pd_reward, pd_hist, pd_lost = run_episode(env, pd_controller, traj, render)
-#             # pd_metrics = compute_advanced_metrics(**pd_hist, dt=dt)
-            
-#             # 1. Evaluate RL Agent
-#             rl_reward, rl_hist, rl_lost = run_episode(env, rl_agent, traj, render)
-#             rl_metrics = compute_advanced_metrics(
-#                 drone_pos=rl_hist["d_pos"], target_pos=rl_hist["t_pos"], 
-#                 drone_vel=rl_hist["d_vel"], target_vel=rl_hist["t_vel"], 
-#                 actions=rl_hist["act"], dt=dt
-#             )
-            
-#             # 2. Evaluate PD Controller
-#             pd_reward, pd_hist, pd_lost = run_episode(env, pd_controller, traj, render)
-#             pd_metrics = compute_advanced_metrics(
-#                 drone_pos=pd_hist["d_pos"], target_pos=pd_hist["t_pos"], 
-#                 drone_vel=pd_hist["d_vel"], target_vel=pd_hist["t_vel"], 
-#                 actions=pd_hist["act"], dt=dt
-#             )
-
-#             # 3. Log Results
-#             logging.info(f"  RL Agent -> Reward: {rl_reward:7.1f} | RMSE: {rl_metrics['RMSE (m)']:5.2f}m | Jerk RMS: {rl_metrics['Jerk RMS (m/s^3)']:5.2f} | Target Lost: {rl_lost}")
-#             logging.info(f"  PD Base  -> Reward: {pd_reward:7.1f} | RMSE: {pd_metrics['RMSE (m)']:5.2f}m | Jerk RMS: {pd_metrics['Jerk RMS (m/s^3)']:5.2f} | Target Lost: {pd_lost}\n")
-
-#             # Store tabular data
-#             for agent_name, metrics, reward, lost in [("RL", rl_metrics, rl_reward, rl_lost), ("PD", pd_metrics, pd_reward, pd_lost)]:
-#                 row = {"Trajectory": traj, "Agent": agent_name, "Reward": reward, "Target Lost": int(lost)}
-#                 row.update(metrics)
-#                 all_metrics.append(row)
-
-#             # 4. Generate Plots
-#             plot_comparisons(rl_hist, pd_hist, traj, plots_dir, dt)
-
-#     except KeyboardInterrupt:
-#         logging.info("\nEvaluation manually terminated. Saving collected data...")
-#     finally:
-#         env.close()
-        
-#     # Save Metrics to CSV using Pandas for clean formatting
-#     df = pd.DataFrame(all_metrics)
-#     csv_path = os.path.join(ckpt_dir, "advanced_metrics.csv")
-#     df.to_csv(csv_path, index=False)
-    
-#     logging.info("="*80)
-#     logging.info(f"Metrics saved to: {csv_path}")
-#     logging.info(f"Plots saved to:   {plots_dir}")
-#     logging.info("="*80)
-
-
-# if __name__ == "__main__":
-#     parser = argparse.ArgumentParser(description="Advanced Evaluation against PD baseline")
-#     parser.add_argument("--checkpoint", type=str, default="/home/teaching/RL/checkpoints_spline/final.pt", help="Path to the .pt file")
-#     parser.add_argument("--GUI", action="store_true", help="Run without PyBullet GUI")
-#     parser.add_argument("--trajectory", type=str, default="all", help="Specific trajectory to test, or 'all'")
-    
-#     args = parser.parse_args()
-    
-#     TEST_TRAJECTORIES = [
-#         "square", "triangular", "sawtooth", "square_wave", 
-#         "spline_easy", "spline_medium", "spline_hard"
-#     ] if args.trajectory == "all" else [args.trajectory]
-    
-#     evaluate_checkpoint(
-#         checkpoint_path=args.checkpoint, 
-#         trajectories=TEST_TRAJECTORIES, 
-#         render= args.GUI
-#     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import argparse
 import csv
 import logging
@@ -377,19 +26,19 @@ from agent import TD3Agent, TD3Config
 # ==========================================
 # 0. GLOBAL STYLE CONFIGURATION
 # ==========================================
-# Beautiful dark-themed style inspired by publication-quality figures
-DARK_BG      = "#0F1117"
-PANEL_BG     = "#1A1D2E"
-GRID_COLOR   = "#2A2D3E"
-TEXT_COLOR   = "#E8EAF6"
-RL_COLOR     = "#4FC3F7"   # Cyan-blue  – RL agent
-PD_COLOR     = "#EF9A9A"   # Soft red   – PD baseline
-TGT_COLOR    = "#A5D6A7"   # Soft green – Target
-ACCENT       = "#FFD54F"   # Gold       – Highlights
+# Clean, publication-quality light theme
+DARK_BG      = "#FFFFFF"
+PANEL_BG     = "#F8F9FA"
+GRID_COLOR   = "#E0E0E0"
+TEXT_COLOR   = "#212121"
+RL_COLOR     = "#1976D2"   # Deep Blue  – RL agent
+PD_COLOR     = "#D32F2F"   # Deep Red   – PD baseline
+TGT_COLOR    = "#388E3C"   # Deep Green – Target
+ACCENT       = "#F57C00"   # Orange     – Highlights
 
-RL_CMAP  = LinearSegmentedColormap.from_list("rl_cmap",  ["#1a237e", RL_COLOR])
-PD_CMAP  = LinearSegmentedColormap.from_list("pd_cmap",  ["#4a0000", PD_COLOR])
-ERR_CMAP = LinearSegmentedColormap.from_list("err_cmap", ["#1B5E20", "#F9A825", "#B71C1C"])
+RL_CMAP  = LinearSegmentedColormap.from_list("rl_cmap",  ["#BBDEFB", RL_COLOR])
+PD_CMAP  = LinearSegmentedColormap.from_list("pd_cmap",  ["#FFCDD2", PD_COLOR])
+ERR_CMAP = LinearSegmentedColormap.from_list("err_cmap", ["#C8E6C9", "#FFF9C4", "#FFCDD2"])
 
 def apply_global_style():
     matplotlib.rcParams.update({
@@ -407,7 +56,7 @@ def apply_global_style():
         "ytick.color":       TEXT_COLOR,
         "xtick.labelsize":   8,
         "ytick.labelsize":   8,
-        "legend.facecolor":  PANEL_BG,
+        "legend.facecolor":  DARK_BG,
         "legend.edgecolor":  GRID_COLOR,
         "legend.labelcolor": TEXT_COLOR,
         "legend.fontsize":   8,
@@ -477,21 +126,14 @@ def compute_advanced_metrics(
                                     np.cos(target_dir - drone_dir)))
     mean_heading_err = np.degrees(np.mean(heading_err))
 
-    # Acceleration & Jerk
+    # Acceleration 
     if len(drone_vel) > 1:
         accel = np.diff(drone_vel[:, :2], axis=0) / dt
         accel_mag = np.linalg.norm(accel, axis=1)
         mean_accel = np.mean(accel_mag)
         max_accel  = np.max(accel_mag)
-        if len(accel) > 1:
-            jerk      = np.diff(accel, axis=0) / dt
-            jerk_mag  = np.linalg.norm(jerk, axis=1)
-            jerk_rms  = np.sqrt(np.mean(jerk_mag**2))
-            max_jerk  = np.max(jerk_mag)
-        else:
-            jerk_rms = max_jerk = 0.0
     else:
-        mean_accel = max_accel = jerk_rms = max_jerk = 0.0
+        mean_accel = max_accel = 0.0
 
     # Control effort & smoothness
     action_mag   = np.linalg.norm(actions, axis=1)
@@ -525,8 +167,6 @@ def compute_advanced_metrics(
         "Heading Err (deg)":   float(mean_heading_err),
         "Mean Accel (m/s²)":   float(mean_accel),
         "Max Accel (m/s²)":    float(max_accel),
-        "Jerk RMS (m/s³)":     float(jerk_rms),
-        "Max Jerk (m/s³)":     float(max_jerk),
         "Control Effort":      float(ctrl_effort),
         "Peak Control":        float(ctrl_peak),
         "Action Jitter":       float(act_jitter),
@@ -572,8 +212,8 @@ def plot_2d_trajectory(ax, rl_h, pd_h, traj_name):
 
     ax.legend(handles=[
         _label_patch(TGT_COLOR, "Target"),
-        _label_patch(RL_COLOR,  "RL (start→end: dark→bright)"),
-        _label_patch(PD_COLOR,  "PD (start→end: dark→bright)"),
+        _label_patch(RL_COLOR,  "RL (start→end: light→dark)"),
+        _label_patch(PD_COLOR,  "PD (start→end: light→dark)"),
     ])
     ax.set_title(f"2-D Spatial Trajectory  [{traj_name}]")
     ax.set_xlabel("X (m)"); ax.set_ylabel("Y (m)")
@@ -705,19 +345,6 @@ def plot_action_scatter(ax, rl_h, pd_h):
     ax.legend()
 
 
-def plot_jerk(ax, rl_h, pd_h, dt):
-    for h, color, label in [(rl_h, RL_COLOR, "RL"), (pd_h, PD_COLOR, "PD")]:
-        if len(h["d_vel"]) > 2:
-            accel = np.diff(h["d_vel"][:, :2], axis=0) / dt
-            jerk  = np.linalg.norm(np.diff(accel, axis=0) / dt, axis=1)
-            t     = np.arange(len(jerk)) * dt
-            ax.fill_between(t, gaussian_filter1d(jerk, 3), alpha=0.15, color=color)
-            ax.plot(t, gaussian_filter1d(jerk, 3), color=color, lw=2, label=f"{label} (RMS={np.sqrt(np.mean(jerk**2)):.2f})")
-    ax.set_title("Jerk Magnitude over Time")
-    ax.set_xlabel("Time (s)"); ax.set_ylabel("Jerk (m/s³)")
-    ax.legend()
-
-
 def plot_heading_error(ax, rl_h, pd_h, dt):
     for h, color, label in [(rl_h, RL_COLOR, "RL"), (pd_h, PD_COLOR, "PD")]:
         if len(h["d_vel"]) > 1:
@@ -760,8 +387,8 @@ def plot_error_heatmap(ax, h, color, title):
         ax.contour(XX, YY, ZZ, levels=8, colors=color, linewidths=0.6, alpha=0.5)
     except Exception:
         ax.scatter(ex, ey, c=color, s=4, alpha=0.3)
-    ax.axhline(0, color="white", lw=0.8, ls="--", alpha=0.5)
-    ax.axvline(0, color="white", lw=0.8, ls="--", alpha=0.5)
+    ax.axhline(0, color="black", lw=0.8, ls="--", alpha=0.5)
+    ax.axvline(0, color="black", lw=0.8, ls="--", alpha=0.5)
     ax.set_title(title)
     ax.set_xlabel("ΔX (m)"); ax.set_ylabel("ΔY (m)")
     ax.set_aspect("equal", adjustable="datalim")
@@ -935,8 +562,11 @@ def plot_comparisons(rl_data: dict, pd_data: dict, traj_name: str,
 
     plot_per_axis_error(fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]), rl_data, pd_data, dt)
     plot_velocity_components(fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[0, 3]), rl_data, pd_data, dt)
-    plot_jerk(fig.add_subplot(gs[1, 0]),            rl_data, pd_data, dt)
-    plot_heading_error(fig.add_subplot(gs[1, 1]),   rl_data, pd_data, dt)
+    
+    # Span the heading error across two columns to fill the gap left by removing jerk
+    ax_heading = fig.add_subplot(gs[1, 0:2])
+    plot_heading_error(ax_heading, rl_data, pd_data, dt)
+    
     plot_action_channels(fig.add_subplot(gs[1, 2]), fig.add_subplot(gs[1, 3]), rl_data, pd_data, dt)
 
     plt.savefig(os.path.join(save_dir, f"{traj_name}_page2_kinematics.png"), bbox_inches="tight")
@@ -963,7 +593,7 @@ def plot_comparisons(rl_data: dict, pd_data: dict, traj_name: str,
 
     plot_reward_breakdown(fig.add_subplot(gs[1, 2]), rl_reward, pd_reward)
     ax_radar = fig.add_subplot(gs[1, 3], polar=True)
-    radar_keys = ["RMSE (m)", "Jerk RMS (m/s³)", "Control Effort", "Action Jitter",
+    radar_keys = ["RMSE (m)", "Mean Accel (m/s²)", "Control Effort", "Action Jitter",
                   "Speed Dev (m/s)", "Heading Err (deg)"]
     plot_metrics_radar(ax_radar, rl_metrics, pd_metrics, radar_keys)
 
@@ -980,7 +610,7 @@ def plot_comparisons(rl_data: dict, pd_data: dict, traj_name: str,
 
     ax_bar = fig.add_subplot(122)
     bar_keys = ["RMSE (m)", "Max Error (m)", "Mean Error (m)", "P95 Error (m)",
-                "Speed Dev (m/s)", "Jerk RMS (m/s³)", "Control Effort", "Action Jitter"]
+                "Speed Dev (m/s)", "Mean Accel (m/s²)", "Control Effort", "Action Jitter"]
     plot_bar_metrics(ax_bar, rl_metrics, pd_metrics, bar_keys)
 
     plt.tight_layout()
@@ -997,7 +627,7 @@ def plot_cross_trajectory_summary(all_metrics: List[dict], save_dir: str):
     """Generate aggregate plots across all tested trajectories."""
     df = pd.DataFrame(all_metrics)
     trajectories = df["Trajectory"].unique().tolist()
-    summary_keys = ["RMSE (m)", "Jerk RMS (m/s³)", "Control Effort",
+    summary_keys = ["RMSE (m)", "Speed Dev (m/s)", "Control Effort",
                     "Time within 0.5m (%)", "Path Efficiency (%)", "Heading Err (deg)"]
 
     fig, axes = plt.subplots(2, 3, figsize=(22, 12))
@@ -1024,7 +654,7 @@ def plot_cross_trajectory_summary(all_metrics: List[dict], save_dir: str):
 def plot_cross_trajectory_heatmap(all_metrics: List[dict], save_dir: str):
     """Normalised performance heatmap – trajectories × metrics."""
     df = pd.DataFrame(all_metrics)
-    pivot_keys = ["RMSE (m)", "Max Error (m)", "Jerk RMS (m/s³)",
+    pivot_keys = ["RMSE (m)", "Max Error (m)", "Mean Accel (m/s²)",
                   "Control Effort", "Action Jitter", "Speed Dev (m/s)",
                   "Time within 0.5m (%)", "Path Efficiency (%)"]
 
@@ -1049,8 +679,8 @@ def plot_cross_trajectory_heatmap(all_metrics: List[dict], save_dir: str):
         for r in range(mat_norm.shape[0]):
             for c in range(mat_norm.shape[1]):
                 ax.text(c, r, f"{mat[r, c]:.2f}", ha="center", va="center",
-                        fontsize=7, color="white",
-                        path_effects=[pe.withStroke(linewidth=1.5, foreground="black")])
+                        fontsize=7, color="black",
+                        path_effects=[pe.withStroke(linewidth=1.5, foreground="white")])
         ax.set_title(f"{agent_label} Agent – Metric Heatmap (all trajectories)",
                      fontsize=14, fontweight="bold", color=ACCENT)
         plt.tight_layout()
@@ -1147,9 +777,9 @@ def evaluate_checkpoint(checkpoint_path: str, trajectories: List[str], render: b
                 actions=pd_hist["act"], dt=dt)
 
             logging.info(f"  RL → Reward:{rl_reward:8.1f}  RMSE:{rl_m['RMSE (m)']:5.3f}m  "
-                         f"Jerk:{rl_m['Jerk RMS (m/s³)']:5.2f}  PathEff:{rl_m['Path Efficiency (%)']:5.1f}%  Lost:{rl_lost}")
+                         f"CtrlEff:{rl_m['Control Effort']:5.2f}  PathEff:{rl_m['Path Efficiency (%)']:5.1f}%  Lost:{rl_lost}")
             logging.info(f"  PD → Reward:{pd_reward:8.1f}  RMSE:{pd_m['RMSE (m)']:5.3f}m  "
-                         f"Jerk:{pd_m['Jerk RMS (m/s³)']:5.2f}  PathEff:{pd_m['Path Efficiency (%)']:5.1f}%  Lost:{pd_lost}\n")
+                         f"CtrlEff:{pd_m['Control Effort']:5.2f}  PathEff:{pd_m['Path Efficiency (%)']:5.1f}%  Lost:{pd_lost}\n")
 
             for agent_label, metrics, reward, lost in [
                 ("RL", rl_m, rl_reward, rl_lost),
