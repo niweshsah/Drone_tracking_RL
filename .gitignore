@@ -1,5 +1,5 @@
 # *.pt
-*.png
+# *.png
 *.npz
 
 __pycache__/
